@@ -1,0 +1,60 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMerchant() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/merchants/$(request.auth.uid));
+    }
+
+    // Profil du client connecté : lisible par tout compte authentifié
+    // (l'espace commerçant doit pouvoir rechercher/afficher un client),
+    // mais modifiable seulement par le propriétaire du profil.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Lien commerçant -> restaurant : privé à chaque commerçant.
+    match /merchants/{merchantId} {
+      allow read, write: if isSignedIn() && request.auth.uid == merchantId;
+    }
+
+    // Catalogue des restaurants partenaires : lecture pour tout compte
+    // authentifié, création à l'inscription commerçant, pas de
+    // modification/suppression depuis le client pour l'instant.
+    match /restaurants/{restaurantId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+    // Passages : seul un compte commerçant peut valider (créer) une
+    // visite, ce qui protège la logique anti-fraude décrite dans le
+    // document de présentation du projet.
+    match /visits/{visitId} {
+      allow read: if isSignedIn();
+      allow create: if isMerchant();
+      allow update, delete: if false;
+    }
+
+    // Récompenses débloquées : créées par le commerçant lors de la
+    // validation, marquées "utilisées" par le client depuis son app.
+    match /rewards/{rewardId} {
+      allow read: if isSignedIn();
+      allow create: if isMerchant();
+      allow update: if isSignedIn();
+      allow delete: if false;
+    }
+
+    // Catalogue de récompenses par restaurant : géré par le commerçant.
+    match /rewardDefinitions/{id} {
+      allow read: if isSignedIn();
+      allow write: if isMerchant();
+    }
+  }
+}
