@@ -8,6 +8,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/stat_pill.dart';
 import '../welcome_screen.dart';
 import 'activity_history_screen.dart';
+import 'merchant_settings_screen.dart';
 
 class MerchantDashboardScreen extends ConsumerWidget {
   const MerchantDashboardScreen({super.key});
@@ -33,6 +34,13 @@ class MerchantDashboardScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text('Bonjour 👋\n${restaurant.name}', style: const TextStyle(height: 1.3, fontSize: 15)),
         actions: [
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MerchantSettingsScreen()),
+            ),
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Paramètres',
+          ),
           IconButton(
             onPressed: () => _logout(context, ref),
             icon: const Icon(Icons.logout),
@@ -70,11 +78,35 @@ class MerchantDashboardScreen extends ConsumerWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: StatPill(label: 'Visites', value: '156', trend: '+12%')),
+              Expanded(
+                child: StatPill(
+                  label: 'Visites',
+                  value: '156',
+                  trend: '+12%',
+                  icon: Icons.trending_up,
+                  iconColor: AppColors.teal,
+                ),
+              ),
               const SizedBox(width: 10),
-              Expanded(child: StatPill(label: 'Clients', value: '89', trend: '+8%')),
+              Expanded(
+                child: StatPill(
+                  label: 'Clients',
+                  value: '89',
+                  trend: '+8%',
+                  icon: Icons.people_alt_outlined,
+                  iconColor: AppColors.blue,
+                ),
+              ),
               const SizedBox(width: 10),
-              Expanded(child: StatPill(label: 'Récompenses', value: '23', trend: '+15%')),
+              Expanded(
+                child: StatPill(
+                  label: 'Récompenses',
+                  value: '23',
+                  trend: '+15%',
+                  icon: Icons.card_giftcard,
+                  iconColor: AppColors.purple,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 24),

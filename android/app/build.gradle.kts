@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
     id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
     // END: FlutterFire Configuration
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -10,7 +11,8 @@ plugins {
 
 android {
     namespace = "com.loyalo.loyalo"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_secure_storage requiert compileSdk 37 minimum.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -27,6 +29,7 @@ android {
         applicationId = "com.loyalo.loyalo"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
+        // local_auth (Face ID / empreinte) requiert l'API BiometricPrompt, disponible à partir du 23.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

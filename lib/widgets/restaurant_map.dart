@@ -18,6 +18,7 @@ class RestaurantMap extends StatefulWidget {
 }
 
 class _RestaurantMapState extends State<RestaurantMap> {
+  final MapController _mapController = MapController();
   Position? _userPosition;
   bool _loading = true;
 
@@ -25,6 +26,11 @@ class _RestaurantMapState extends State<RestaurantMap> {
   void initState() {
     super.initState();
     _locateUser();
+  }
+
+  void _zoomBy(double delta) {
+    final camera = _mapController.camera;
+    _mapController.move(camera.center, (camera.zoom + delta).clamp(3.0, 18.0));
   }
 
   Future<void> _locateUser() async {
@@ -82,12 +88,24 @@ class _RestaurantMapState extends State<RestaurantMap> {
             child: Stack(
               children: [
                 FlutterMap(
+                  mapController: _mapController,
                   options: MapOptions(initialCenter: restaurantPoint, initialZoom: 14.5),
                   children: [
                     TileLayer(
                       urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                       userAgentPackageName: 'com.loyalo.app',
                     ),
+                    if (_userPosition != null)
+                      PolylineLayer(
+                        polylines: [
+                          Polyline(
+                            points: [restaurantPoint, LatLng(_userPosition!.latitude, _userPosition!.longitude)],
+                            color: AppColors.purple.withValues(alpha: 0.6),
+                            strokeWidth: 3,
+                            pattern: const StrokePattern.dotted(),
+                          ),
+                        ],
+                      ),
                     MarkerLayer(
                       markers: [
                         Marker(
@@ -123,6 +141,17 @@ class _RestaurantMapState extends State<RestaurantMap> {
                       child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.purple),
                     ),
                   ),
+                Positioned(
+                  right: 8,
+                  bottom: 8,
+                  child: Column(
+                    children: [
+                      _ZoomButton(icon: Icons.add, onTap: () => _zoomBy(1)),
+                      const SizedBox(height: 6),
+                      _ZoomButton(icon: Icons.remove, onTap: () => _zoomBy(-1)),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -135,6 +164,30 @@ class _RestaurantMapState extends State<RestaurantMap> {
           style: const TextStyle(fontSize: 12, color: AppColors.textGray),
         ),
       ],
+    );
+  }
+}
+
+class _ZoomButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _ZoomButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 2,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(icon, size: 16, color: AppColors.textDark),
+        ),
+      ),
     );
   }
 }

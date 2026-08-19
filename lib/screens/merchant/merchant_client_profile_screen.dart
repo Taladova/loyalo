@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../providers/app_providers.dart';
+import '../../services/analytics_service.dart';
 import '../../services/loyalty_repository.dart';
 import '../../theme/app_theme.dart';
 
@@ -27,12 +28,18 @@ class MerchantClientProfileScreen extends ConsumerWidget {
         message = 'Ce client a déjà été validé aujourd\'hui pour ce restaurant.';
         break;
       case VisitOutcome.rewardUnlocked:
+        AnalyticsService.logVisitRegistered(restaurantId: result.restaurant.id);
+        AnalyticsService.logRewardUnlocked(
+          restaurantId: result.restaurant.id,
+          rewardLabel: result.restaurant.rewardLabel,
+        );
         title = 'Récompense débloquée !';
         color = AppColors.success;
         message = '${result.passageCount}/${result.restaurant.rewardThreshold} passages — '
             '${result.restaurant.rewardLabel}.';
         break;
       case VisitOutcome.validated:
+        AnalyticsService.logVisitRegistered(restaurantId: result.restaurant.id);
         title = 'Visite validée';
         color = AppColors.teal;
         message = '${result.passageCount}/${result.restaurant.rewardThreshold} passages.';

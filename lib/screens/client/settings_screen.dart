@@ -1,9 +1,13 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../legal_content.dart';
 import '../../providers/app_providers.dart';
 import '../../services/auth_service.dart';
+import '../../services/biometric_service.dart';
 import '../../theme/app_theme.dart';
+import '../legal_screen.dart';
 import '../welcome_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -17,6 +21,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notifVisits = true;
   bool _notifRewards = true;
   bool _notifOffers = false;
+
+  final _biometricService = BiometricService();
+  bool _biometricSupported = false;
+  bool _biometricEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBiometricState();
+  }
+
+  Future<void> _loadBiometricState() async {
+    final supported = await _biometricService.isDeviceSupported();
+    final enabled = await _biometricService.isEnabled();
+    if (!mounted) return;
+    setState(() {
+      _biometricSupported = supported;
+      _biometricEnabled = enabled;
+    });
+  }
+
+  Future<void> _toggleBiometric(bool value) async {
+    if (value) {
+      final confirmed = await _biometricService.authenticate();
+      if (!confirmed) return;
+    }
+    await _biometricService.setEnabled(value);
+    if (!mounted) return;
+    setState(() => _biometricEnabled = value);
+  }
 
   void _showInfoDialog(String title, String message) {
     showDialog(
@@ -35,21 +69,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Supprimer mon compte'),
         content: const Text(
-          'Cette action supprimera votre historique de visites et vos récompenses. '
-          'Voulez-vous vraiment continuer ?',
+          'Votre profil et votre accès seront définitivement supprimés. Voulez-vous vraiment continuer ?',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuler')),
           TextButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
-              ref.read(loyaltyRepositoryProvider).stopListening();
-              await AuthService().signOut();
-              if (!mounted) return;
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const WelcomeScreen()),
-                (route) => false,
-              );
+              final uid = ref.read(currentUserProvider)!.id;
+              final repo = ref.read(loyaltyRepositoryProvider);
+              try {
+                await repo.deleteClientProfile(uid);
+                await AuthService().deleteAccount();
+                repo.stopListening();
+                if (!mounted) return;
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+                  (route) => false,
+                );
+              } on FirebaseAuthException catch (e) {
+                if (!mounted) return;
+                final message = e.code == 'requires-recent-login'
+                    ? 'Pour votre sécurité, reconnectez-vous puis réessayez de supprimer votre compte.'
+                    : AuthService.readableError(e);
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('Suppression impossible'),
+                    content: Text(message),
+                    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                  ),
+                );
+              }
             },
             child: const Text('Supprimer', style: TextStyle(color: AppColors.danger)),
           ),
@@ -93,6 +144,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ],
           ),
+          if (_biometricSupported) ...[
+            const SizedBox(height: 20),
+            _SectionLabel('Sécurité'),
+            _SettingsCard(
+              children: [
+                SwitchListTile(
+                  title: const Text('Déverrouillage Face ID / empreinte'),
+                  subtitle: const Text('Confirmez votre identité avant d\'accéder à l\'app'),
+                  value: _biometricEnabled,
+                  activeThumbColor: AppColors.purple,
+                  onChanged: _toggleBiometric,
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 20),
           _SectionLabel('Compte'),
           _SettingsCard(
@@ -121,17 +187,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 trailing: const Icon(Icons.chevron_right, color: AppColors.textGray),
                 onTap: () => _showInfoDialog(
                   'Aide & support',
-                  'Version de test Loyalo. Pour toute question, contactez l\'équipe du restaurant partenaire directement.',
+                  'Pour toute question sur votre compte ou une récompense, contactez le restaurant partenaire '
+                      'directement, ou écrivez-nous à contact@taladova.com.',
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.privacy_tip_outlined),
+                title: const Text('Politique de confidentialité'),
+                trailing: const Icon(Icons.chevron_right, color: AppColors.textGray),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const LegalScreen(title: 'Politique de confidentialité', content: kPrivacyPolicyText),
+                  ),
                 ),
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.description_outlined),
-                title: const Text('Mentions légales'),
+                title: const Text('Conditions d\'utilisation'),
                 trailing: const Icon(Icons.chevron_right, color: AppColors.textGray),
-                onTap: () => _showInfoDialog(
-                  'Mentions légales',
-                  'Loyalo — version test / MVP. Aucune donnée réelle n\'est collectée durant cette phase.',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const LegalScreen(title: 'Conditions d\'utilisation', content: kTermsOfServiceText),
+                  ),
                 ),
               ),
             ],

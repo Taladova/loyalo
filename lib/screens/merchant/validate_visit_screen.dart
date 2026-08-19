@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/app_providers.dart';
+import '../../services/analytics_service.dart';
 import '../../services/loyalty_repository.dart';
 import '../../theme/app_theme.dart';
 import 'client_search_screen.dart';
@@ -49,6 +50,11 @@ class _ValidateVisitScreenState extends ConsumerState<ValidateVisitScreen> {
         _showDialog('Déjà validé', 'Ce client a déjà été validé aujourd\'hui pour ce restaurant.', AppColors.orange);
         break;
       case VisitOutcome.rewardUnlocked:
+        AnalyticsService.logVisitRegistered(restaurantId: result.restaurant.id);
+        AnalyticsService.logRewardUnlocked(
+          restaurantId: result.restaurant.id,
+          rewardLabel: result.restaurant.rewardLabel,
+        );
         _showDialog(
           'Récompense débloquée !',
           '${result.passageCount}/${result.restaurant.rewardThreshold} passages.\n'
@@ -57,6 +63,7 @@ class _ValidateVisitScreenState extends ConsumerState<ValidateVisitScreen> {
         );
         break;
       case VisitOutcome.validated:
+        AnalyticsService.logVisitRegistered(restaurantId: result.restaurant.id);
         _showDialog(
           'Visite validée',
           '${result.passageCount}/${result.restaurant.rewardThreshold} passages pour ${result.restaurant.name}.',

@@ -221,6 +221,18 @@ class LoyaltyRepository extends ChangeNotifier {
     return doc.data()?['restaurantId'] as String?;
   }
 
+  /// Supprime le profil Firestore d'un client. L'historique de visites et
+  /// de récompenses reste, lui, impossible à supprimer par le client
+  /// lui-même (règles de sécurité anti-fraude) : il est simplement dissocié
+  /// de tout profil lisible une fois le compte Firebase Auth supprimé.
+  Future<void> deleteClientProfile(String uid) async {
+    await _db.collection('users').doc(uid).delete();
+  }
+
+  Future<void> unlinkMerchant(String uid) async {
+    await _db.collection('merchants').doc(uid).delete();
+  }
+
   // ---------------------------------------------------------------------
   // Restaurants
   // ---------------------------------------------------------------------

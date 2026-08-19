@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/app_providers.dart';
+import '../../services/analytics_service.dart';
 import '../../services/auth_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loyalo_logo.dart';
@@ -60,6 +61,7 @@ class _MerchantSignupScreenState extends ConsumerState<MerchantSignupScreen> {
       );
       await repo.linkMerchantToRestaurant(user.uid, restaurantId);
       ref.read(currentMerchantRestaurantIdProvider.notifier).state = restaurantId;
+      AnalyticsService.logMerchantSignUp();
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -139,7 +141,7 @@ class _MerchantSignupScreenState extends ConsumerState<MerchantSignupScreen> {
               ),
               const SizedBox(height: 12),
               const Text(
-                'Version de test — votre restaurant est enregistré immédiatement pour le pilote.',
+                'Votre restaurant est enregistré immédiatement.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 11, color: AppColors.textGray),
               ),

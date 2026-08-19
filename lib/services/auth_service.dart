@@ -33,6 +33,17 @@ class AuthService {
 
   Future<void> signOut() => _auth.signOut();
 
+  Future<void> sendPasswordResetEmail({required String email}) =>
+      _auth.sendPasswordResetEmail(email: email);
+
+  /// Supprime définitivement le compte Firebase Auth. Si la session est
+  /// trop ancienne, Firebase exige une reconnexion récente
+  /// (FirebaseAuthException code `requires-recent-login`) : l'appelant
+  /// doit alors inviter l'utilisateur à se reconnecter puis réessayer.
+  Future<void> deleteAccount() async {
+    await _auth.currentUser?.delete();
+  }
+
   /// Traduit les erreurs Firebase Auth les plus courantes en messages
   /// compréhensibles pour un commerçant ou un client non technique.
   static String readableError(FirebaseAuthException e) {

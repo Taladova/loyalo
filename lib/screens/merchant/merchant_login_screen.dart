@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/app_providers.dart';
+import '../../services/analytics_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/remember_me_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loyalo_logo.dart';
 import 'merchant_root_screen.dart';
@@ -20,8 +22,25 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authService = AuthService();
+  final _rememberMeService = RememberMeService();
   bool _loading = false;
+  bool _rememberMe = true;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _prefill();
+  }
+
+  Future<void> _prefill() async {
+    final (email, password) = await _rememberMeService.loadMerchant();
+    if (!mounted) return;
+    setState(() {
+      _emailController.text = email;
+      _passwordController.text = password;
+    });
+  }
 
   Future<void> _login() async {
     final email = _emailController.text.trim();
@@ -46,6 +65,12 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
         return;
       }
       ref.read(currentMerchantRestaurantIdProvider.notifier).state = restaurantId;
+      AnalyticsService.logMerchantLogin();
+      if (_rememberMe) {
+        await _rememberMeService.saveMerchant(email: email, password: password);
+      } else {
+        await _rememberMeService.clearMerchant();
+      }
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const MerchantRootScreen()),
@@ -57,17 +82,28 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
     }
   }
 
-  void _forgotPassword() {
+  Future<void> _forgotPassword() async {
     final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      _showMessage('Mot de passe oublié', 'Renseignez votre email professionnel ci-dessus puis réessayez.');
+      return;
+    }
+    try {
+      await _authService.sendPasswordResetEmail(email: email);
+      if (!mounted) return;
+      _showMessage('Email envoyé', 'Un lien de réinitialisation a été envoyé à $email.');
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      _showMessage('Mot de passe oublié', AuthService.readableError(e));
+    }
+  }
+
+  void _showMessage(String title, String message) {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Mot de passe oublié'),
-        content: Text(
-          email.isEmpty
-              ? 'Renseignez votre email professionnel ci-dessus puis réessayez pour recevoir un lien de réinitialisation.'
-              : 'Un lien de réinitialisation a été envoyé à $email.\n\n(Version de test — aucun email réel n\'est envoyé.)',
-        ),
+        title: Text(title),
+        content: Text(message),
         actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('OK'))],
       ),
     );
@@ -103,7 +139,15 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
                 obscureText: true,
                 onSubmitted: (_) => _login(),
               ),
-              const SizedBox(height: 8),
+              CheckboxListTile(
+                value: _rememberMe,
+                onChanged: (v) => setState(() => _rememberMe = v ?? true),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                activeColor: AppColors.teal,
+                title: const Text('Se souvenir de moi', style: TextStyle(fontSize: 13)),
+              ),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(

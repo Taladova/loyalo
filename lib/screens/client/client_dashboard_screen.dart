@@ -5,14 +5,41 @@ import '../../models/reward.dart';
 import '../../providers/app_providers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/reward_card.dart';
+import '../../widgets/reward_unlocked_dialog.dart';
 import '../../widgets/section_header.dart';
 import 'rewards_screen.dart';
 
-class ClientDashboardScreen extends ConsumerWidget {
+class ClientDashboardScreen extends ConsumerStatefulWidget {
   const ClientDashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ClientDashboardScreen> createState() => _ClientDashboardScreenState();
+}
+
+class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
+  Set<String>? _knownRewardIds;
+
+  void _checkForNewRewards(List<RewardItem> availableRewards) {
+    final ids = availableRewards.map((r) => r.id).toSet();
+    final known = _knownRewardIds;
+    if (known == null) {
+      // Premier chargement : on mémorise l'état actuel sans rien célébrer,
+      // sinon toutes les récompenses déjà là s'afficheraient d'un coup.
+      _knownRewardIds = ids;
+      return;
+    }
+    final newIds = ids.difference(known);
+    _knownRewardIds = ids;
+    if (newIds.isEmpty) return;
+    final newest = availableRewards.firstWhere((r) => r.id == newIds.first);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showRewardUnlockedDialog(context, rewardLabel: newest.label, restaurantName: newest.restaurantName);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final repo = ref.watch(loyaltyRepositoryProvider);
     final user = ref.watch(currentUserProvider)!;
     final points = repo.totalPoints(user.id);
@@ -32,6 +59,7 @@ class ClientDashboardScreen extends ConsumerWidget {
     final remaining = closest.rewardThreshold - currentCount;
 
     final rewards = repo.rewardsForUser(user.id).where((r) => r.status == RewardStatus.available).toList();
+    _checkForNewRewards(rewards);
 
     return Scaffold(
       body: SafeArea(
