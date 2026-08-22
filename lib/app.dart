@@ -1,17 +1,60 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:quick_actions/quick_actions.dart';
 
+import 'providers/app_providers.dart';
 import 'screens/auth_gate_screen.dart';
+import 'screens/client/my_code_screen.dart';
 import 'services/analytics_service.dart';
 import 'theme/app_theme.dart';
 
-class LoyaloApp extends StatelessWidget {
+class LoyaloApp extends ConsumerStatefulWidget {
   const LoyaloApp({super.key});
+
+  @override
+  ConsumerState<LoyaloApp> createState() => _LoyaloAppState();
+}
+
+class _LoyaloAppState extends ConsumerState<LoyaloApp> {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  final _quickActions = QuickActions();
+
+  @override
+  void initState() {
+    super.initState();
+    // Raccourci "Mon code" accessible par appui long sur l'icône de l'app
+    // (équivalent léger d'une carte de fidélité dans le portefeuille, sans
+    // dépendre d'un compte développeur payant). N'existe que sur mobile :
+    // aucune implémentation web pour ce plugin.
+    if (!kIsWeb) {
+      _quickActions.initialize((type) {
+        if (type == 'show_code') _openMyCode();
+      });
+      _quickActions.setShortcutItems(const [
+        ShortcutItem(type: 'show_code', localizedTitle: 'Mon code', icon: 'ic_shortcut_code'),
+      ]);
+    }
+  }
+
+  Future<void> _openMyCode() async {
+    // Au lancement à froid, la session Firebase est encore en train de se
+    // résoudre dans AuthGateScreen : on patiente un peu avant d'abandonner.
+    for (var i = 0; i < 10; i++) {
+      if (ref.read(currentUserProvider) != null) {
+        _navigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const MyCodeScreen()));
+        return;
+      }
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'Loyalo',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),

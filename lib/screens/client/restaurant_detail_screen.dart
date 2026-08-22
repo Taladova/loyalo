@@ -6,6 +6,7 @@ import '../../models/restaurant.dart';
 import '../../providers/app_providers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/restaurant_map.dart';
+import '../../widgets/review_section.dart';
 
 class RestaurantDetailScreen extends ConsumerWidget {
   final Restaurant restaurant;
@@ -120,6 +121,13 @@ class RestaurantDetailScreen extends ConsumerWidget {
                     ],
                   ),
                 )),
+          const SizedBox(height: 24),
+          ReviewSection(
+            restaurantId: restaurant.id,
+            restaurantName: restaurant.name,
+            userId: user.id,
+            userName: user.name,
+          ),
         ],
       ),
     );

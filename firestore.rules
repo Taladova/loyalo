@@ -56,5 +56,26 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isMerchant();
     }
+
+    // Liste "envie d'y aller" : des lieux réels enregistrés par un client,
+    // indépendants du programme de fidélité. Strictement privée à son
+    // propriétaire.
+    match /wishlist/{id} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if false;
+    }
+
+    // Avis clients sur un restaurant : lisibles par tout compte
+    // authentifié (moyenne affichée à tous), mais un client ne peut créer
+    // ou modifier que son propre avis (id de document = restaurantId_uid).
+    match /reviews/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        id == request.resource.data.restaurantId + '_' + request.auth.uid;
+      allow delete: if false;
+    }
   }
 }
