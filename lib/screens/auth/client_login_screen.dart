@@ -21,10 +21,12 @@ class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _referralCodeController = TextEditingController();
   final _authService = AuthService();
   final _rememberMeService = RememberMeService();
   bool _loading = false;
   bool _rememberMe = true;
+  bool _showReferralField = false;
   String? _error;
 
   @override
@@ -66,6 +68,7 @@ class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
         uid: firebaseUser.uid,
         name: name,
         email: email,
+        referredByCode: _referralCodeController.text,
       );
       ref.read(currentUserProvider.notifier).state = appUser;
       AnalyticsService.logClientLogin();
@@ -153,6 +156,23 @@ class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
                 onSubmitted: (_) => _login(),
               ),
               const SizedBox(height: 4),
+              if (!_showReferralField)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () => setState(() => _showReferralField = true),
+                    style: TextButton.styleFrom(padding: EdgeInsets.zero, alignment: Alignment.centerLeft),
+                    child: const Text('J\'ai un code parrain', style: TextStyle(fontSize: 12.5)),
+                  ),
+                )
+              else ...[
+                TextField(
+                  controller: _referralCodeController,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(labelText: 'Code parrain (optionnel)'),
+                ),
+                const SizedBox(height: 4),
+              ],
               CheckboxListTile(
                 value: _rememberMe,
                 onChanged: (v) => setState(() => _rememberMe = v ?? true),

@@ -1,12 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/loyalo_logo.dart';
 import 'auth/client_login_screen.dart';
 import 'merchant/merchant_login_screen.dart';
+import 'merchant/merchant_onboarding_screen.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
+
+  Future<void> _openMerchantSpace(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    final seen = prefs.getBool('merchant_onboarding_seen') ?? false;
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => seen ? const MerchantLoginScreen() : const MerchantOnboardingScreen(),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,9 +44,7 @@ class WelcomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               ElevatedButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const MerchantLoginScreen()),
-                ),
+                onPressed: () => _openMerchantSpace(context),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.purple,
                   minimumSize: const Size.fromHeight(52),

@@ -63,6 +63,7 @@ class LoyaltyRepository extends ChangeNotifier {
   List<Visit> _visits = [];
   List<RewardItem> _rewardItems = [];
   List<RewardDefinition> _rewardDefinitions = [];
+  List<ReferredFriend> _referrals = [];
 
   /// Démarre la synchronisation avec Firestore. À appeler une fois
   /// qu'un utilisateur (client ou commerçant) est authentifié, puisque
@@ -97,6 +98,11 @@ class LoyaltyRepository extends ChangeNotifier {
 
     _subscriptions.add(_db.collection('rewardDefinitions').snapshots().listen((snap) {
       _rewardDefinitions = snap.docs.map(RewardDefinition.fromFirestore).toList();
+      notifyListeners();
+    }, onError: (_) {}));
+
+    _subscriptions.add(_db.collection('referrals').snapshots().listen((snap) {
+      _referrals = snap.docs.map(ReferredFriend.fromFirestore).toList();
       notifyListeners();
     }, onError: (_) {}));
   }
@@ -189,6 +195,7 @@ class LoyaltyRepository extends ChangeNotifier {
     required String uid,
     required String name,
     required String email,
+    String? referredByCode,
   }) async {
     final doc = _db.collection('users').doc(uid);
     final snap = await doc.get();
@@ -201,6 +208,9 @@ class LoyaltyRepository extends ChangeNotifier {
         'referralCode': referralCode,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      if (referredByCode != null && referredByCode.trim().isNotEmpty) {
+        await redeemReferralCode(code: referredByCode, newUserId: uid, newUserName: name);
+      }
       return AppUser(id: uid, name: name, email: email, referralCode: referralCode);
     }
     final data = snap.data()!;
@@ -303,6 +313,9 @@ class LoyaltyRepository extends ChangeNotifier {
       final restaurant = _restaurants.where((r) => r.id == v.restaurantId).firstOrNull;
       total += restaurant?.pointsPerVisit ?? 0;
     }
+    for (final r in _referrals.where((r) => r.referrerId == userId)) {
+      total += r.pointsEarned;
+    }
     return total;
   }
 
@@ -328,27 +341,44 @@ class LoyaltyRepository extends ChangeNotifier {
     return 'LOYA$suffix';
   }
 
-  final Map<String, List<ReferredFriend>> _referrals = {};
+  static const _referralBonusPoints = 500;
 
-  /// Filleuls d'un client. Simulation locale (non persistée) pour la
-  /// phase de test — le parrainage n'est pas encore branché à Firestore.
+  /// Filleuls d'un client : chaque inscription réalisée avec son code
+  /// parrain (voir [redeemReferralCode]), la plus récente en premier.
   List<ReferredFriend> referralsFor(String userId) {
-    final now = _clock();
-    return _referrals.putIfAbsent(
-      userId,
-      () => [
-        ReferredFriend(name: 'Camille R.', status: ReferralStatus.joined, pointsEarned: 500, invitedAt: now.subtract(const Duration(days: 12))),
-        ReferredFriend(name: 'Thomas L.', status: ReferralStatus.pending, pointsEarned: 0, invitedAt: now.subtract(const Duration(days: 3))),
-      ],
-    );
+    final mine = _referrals.where((r) => r.referrerId == userId).toList()
+      ..sort((a, b) => b.invitedAt.compareTo(a.invitedAt));
+    return mine;
   }
 
-  void inviteFriend(String userId, String name) {
-    referralsFor(userId).insert(
-      0,
-      ReferredFriend(name: name, status: ReferralStatus.pending, pointsEarned: 0, invitedAt: _clock()),
+  /// Appelé juste après la création d'un tout nouveau profil client, si un
+  /// code parrain a été renseigné à l'inscription. Retrouve le parrain
+  /// correspondant et le crédite immédiatement de points de bienvenue.
+  /// Ignoré silencieusement si le code est invalide, vide, ou correspond
+  /// au nouveau client lui-même (auto-parrainage).
+  Future<void> redeemReferralCode({
+    required String code,
+    required String newUserId,
+    required String newUserName,
+  }) async {
+    final trimmed = code.trim().toUpperCase();
+    if (trimmed.isEmpty) return;
+
+    final matches = await _db.collection('users').where('referralCode', isEqualTo: trimmed).limit(1).get();
+    if (matches.docs.isEmpty) return;
+    final referrerId = matches.docs.first.id;
+    if (referrerId == newUserId) return;
+
+    final referral = ReferredFriend(
+      id: '',
+      referrerId: referrerId,
+      referredUserId: newUserId,
+      name: newUserName,
+      status: ReferralStatus.joined,
+      pointsEarned: _referralBonusPoints,
+      invitedAt: _clock(),
     );
-    notifyListeners();
+    await _db.collection('referrals').add(referral.toMap());
   }
 
   bool _hasVisitedToday(String userId, String restaurantId) {

@@ -4,54 +4,77 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import 'welcome_screen.dart';
 
-class _OnboardingPageData {
+class OnboardingPageData {
   final IconData icon;
   final String title;
   final String description;
 
-  const _OnboardingPageData({required this.icon, required this.title, required this.description});
+  const OnboardingPageData({required this.icon, required this.title, required this.description});
 }
 
-const _pages = [
-  _OnboardingPageData(
+const _clientPages = [
+  OnboardingPageData(
     icon: Icons.storefront_outlined,
     title: 'Découvrez vos commerces préférés',
     description: 'Retrouvez les restaurants et commerces partenaires autour de vous, et suivez votre progression '
         'vers votre prochaine récompense.',
   ),
-  _OnboardingPageData(
+  OnboardingPageData(
     icon: Icons.pin_outlined,
     title: 'Un code, à chaque visite',
     description: 'Présentez votre code personnel à 6 chiffres au commerçant — il se renouvelle régulièrement pour '
         'éviter toute fraude.',
   ),
-  _OnboardingPageData(
+  OnboardingPageData(
     icon: Icons.card_giftcard,
     title: 'Débloquez des récompenses',
     description: 'Cumulez vos visites et recevez automatiquement vos récompenses fidélité, sans carte en papier.',
   ),
 ];
 
-class OnboardingScreen extends StatefulWidget {
+/// Onboarding client (3 écrans), affiché une seule fois au tout premier
+/// lancement. Fine enveloppe autour de [OnboardingFlow], le composant
+/// générique réutilisé côté commerçant.
+class OnboardingScreen extends StatelessWidget {
   const OnboardingScreen({super.key});
 
   @override
-  State<OnboardingScreen> createState() => _OnboardingScreenState();
+  Widget build(BuildContext context) {
+    return const OnboardingFlow(
+      pages: _clientPages,
+      prefsKey: 'onboarding_seen',
+      destination: WelcomeScreen(),
+    );
+  }
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+/// Composant générique d'introduction en plusieurs écrans, réutilisable
+/// pour n'importe quel parcours (client, commerçant...) : mémorise dans
+/// [prefsKey] qu'il a déjà été vu, pour ne jamais le réafficher ensuite.
+class OnboardingFlow extends StatefulWidget {
+  final List<OnboardingPageData> pages;
+  final String prefsKey;
+  final Widget destination;
+
+  const OnboardingFlow({super.key, required this.pages, required this.prefsKey, required this.destination});
+
+  @override
+  State<OnboardingFlow> createState() => _OnboardingFlowState();
+}
+
+class _OnboardingFlowState extends State<OnboardingFlow> {
   final _pageController = PageController();
   int _index = 0;
 
   Future<void> _finish() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('onboarding_seen', true);
+    await prefs.setBool(widget.prefsKey, true);
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const WelcomeScreen()));
+    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => widget.destination));
   }
 
   void _next() {
-    if (_index == _pages.length - 1) {
+    if (_index == widget.pages.length - 1) {
       _finish();
       return;
     }
@@ -60,7 +83,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isLast = _index == _pages.length - 1;
+    final isLast = _index == widget.pages.length - 1;
 
     return Scaffold(
       body: SafeArea(
@@ -79,10 +102,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             Expanded(
               child: PageView.builder(
                 controller: _pageController,
-                itemCount: _pages.length,
+                itemCount: widget.pages.length,
                 onPageChanged: (i) => setState(() => _index = i),
                 itemBuilder: (context, i) {
-                  final page = _pages[i];
+                  final page = widget.pages[i];
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     child: Column(
@@ -115,7 +138,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(
-                _pages.length,
+                widget.pages.length,
                 (i) => AnimatedContainer(
                   duration: const Duration(milliseconds: 250),
                   margin: const EdgeInsets.symmetric(horizontal: 4),

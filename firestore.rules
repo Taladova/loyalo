@@ -77,5 +77,14 @@ service cloud.firestore {
         id == request.resource.data.restaurantId + '_' + request.auth.uid;
       allow delete: if false;
     }
+
+    // Parrainage : créé une seule fois, au moment de l'inscription du
+    // filleul, par le filleul lui-même (referredUserId == son propre uid)
+    // — c'est ce qui crédite le parrain de points de bienvenue.
+    match /referrals/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.referredUserId == request.auth.uid;
+      allow update, delete: if false;
+    }
   }
 }
