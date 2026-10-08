@@ -10,6 +10,9 @@ class WishlistPlace {
   final String address;
   final double latitude;
   final double longitude;
+  final String? imageUrl;
+  final String? restaurantId;
+  final String source;
   final DateTime addedAt;
 
   const WishlistPlace({
@@ -19,10 +22,15 @@ class WishlistPlace {
     required this.address,
     required this.latitude,
     required this.longitude,
+    this.imageUrl,
+    this.restaurantId,
+    this.source = 'external',
     required this.addedAt,
   });
 
-  factory WishlistPlace.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+  factory WishlistPlace.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data()!;
     final added = data['addedAt'];
     return WishlistPlace(
@@ -32,6 +40,9 @@ class WishlistPlace {
       address: data['address'] as String? ?? '',
       latitude: (data['latitude'] as num?)?.toDouble() ?? 0,
       longitude: (data['longitude'] as num?)?.toDouble() ?? 0,
+      imageUrl: data['imageUrl'] as String?,
+      restaurantId: data['restaurantId'] as String?,
+      source: data['source'] as String? ?? 'external',
       addedAt: added is Timestamp ? added.toDate() : DateTime.now(),
     );
   }
@@ -43,6 +54,10 @@ class WishlistPlace {
       'address': address,
       'latitude': latitude,
       'longitude': longitude,
+      if (imageUrl != null && imageUrl!.isNotEmpty) 'imageUrl': imageUrl,
+      if (restaurantId != null && restaurantId!.isNotEmpty)
+        'restaurantId': restaurantId,
+      'source': source,
       'addedAt': FieldValue.serverTimestamp(),
     };
   }

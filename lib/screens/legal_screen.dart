@@ -16,7 +16,11 @@ class LegalScreen extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Text(
           content.trim(),
-          style: const TextStyle(fontSize: 13.5, color: AppColors.textDark, height: 1.6),
+          style: TextStyle(
+            fontSize: 13.5,
+            color: AppTheme.textOf(context),
+            height: 1.6,
+          ),
         ),
       ),
     );

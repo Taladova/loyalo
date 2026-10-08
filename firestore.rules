@@ -6,85 +6,333 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
     function isMerchant() {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/merchants/$(request.auth.uid));
     }
 
-    // Profil du client connecté : lisible par tout compte authentifié
-    // (l'espace commerçant doit pouvoir rechercher/afficher un client),
-    // mais modifiable seulement par le propriétaire du profil.
+    function merchantRestaurantId() {
+      return get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.restaurantId;
+    }
+
+    function isMerchantForRestaurant(restaurantId) {
+      return isMerchant() && merchantRestaurantId() == restaurantId;
+    }
+
+    function changedOnly(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    function merchantCanAccessUser(userId) {
+      return isMerchant() &&
+        exists(/databases/$(database)/documents/restaurantCustomers/$(merchantRestaurantId() + '_' + userId));
+    }
+
+    function restaurantOwnerCanCreate() {
+      return isSignedIn() &&
+        request.resource.data.ownerId == request.auth.uid &&
+        request.resource.data.name is string &&
+        request.resource.data.cuisine is string &&
+        request.resource.data.rewardThreshold is int &&
+        request.resource.data.rewardLabel is string;
+    }
+
+    function restaurantOwnerCanUpdate() {
+      return isSignedIn() &&
+        resource.data.ownerId == request.auth.uid &&
+        request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    function linkedMerchantCanClaimRestaurant(restaurantId) {
+      return isMerchantForRestaurant(restaurantId) &&
+        resource.data.ownerId == null &&
+        request.resource.data.ownerId == request.auth.uid;
+    }
+
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && request.auth.uid == userId;
+      allow get: if isSelf(userId) || merchantCanAccessUser(userId);
+      allow list: if false;
+      allow create: if isSelf(userId);
+      allow update: if isSelf(userId);
+      allow delete: if isSelf(userId);
+
+      match /devices/{deviceId} {
+        allow get, list, create, update, delete: if isSelf(userId);
+      }
     }
 
-    // Lien commerçant -> restaurant : privé à chaque commerçant.
-    match /merchants/{merchantId} {
-      allow read, write: if isSignedIn() && request.auth.uid == merchantId;
-    }
-
-    // Catalogue des restaurants partenaires : lecture pour tout compte
-    // authentifié, création à l'inscription commerçant, pas de
-    // modification/suppression depuis le client pour l'instant.
-    match /restaurants/{restaurantId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if false;
-    }
-
-    // Passages : seul un compte commerçant peut valider (créer) une
-    // visite, ce qui protège la logique anti-fraude décrite dans le
-    // document de présentation du projet.
-    match /visits/{visitId} {
-      allow read: if isSignedIn();
-      allow create: if isMerchant();
-      allow update, delete: if false;
-    }
-
-    // Récompenses débloquées : créées par le commerçant lors de la
-    // validation, marquées "utilisées" par le client depuis son app.
-    match /rewards/{rewardId} {
-      allow read: if isSignedIn();
-      allow create: if isMerchant();
-      allow update: if isSignedIn();
+    match /referralCodes/{code} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create: if isSelf(request.resource.data.userId);
+      allow update: if isSelf(resource.data.userId) &&
+        request.resource.data.userId == resource.data.userId;
       allow delete: if false;
     }
 
-    // Catalogue de récompenses par restaurant : géré par le commerçant.
+    match /validationCodes/{code} {
+      allow get: if isMerchant() || isSelf(resource.data.userId);
+      allow list: if false;
+      allow create: if isSelf(request.resource.data.userId);
+      allow update: if isSelf(resource.data.userId) &&
+        request.resource.data.userId == resource.data.userId;
+      allow delete: if false;
+    }
+
+    match /merchants/{merchantId} {
+      allow get: if isSelf(merchantId);
+      allow list: if false;
+      allow create, update: if isSelf(merchantId) &&
+        request.resource.data.restaurantId is string &&
+        get(/databases/$(database)/documents/restaurants/$(request.resource.data.restaurantId)).data.ownerId == request.auth.uid;
+      allow delete: if isSelf(merchantId);
+    }
+
+    match /restaurantCustomers/{id} {
+      allow get, list: if isSignedIn() &&
+        (resource.data.userId == request.auth.uid ||
+          isMerchantForRestaurant(resource.data.restaurantId));
+      allow create: if isSignedIn() &&
+        request.resource.data.restaurantId is string &&
+        request.resource.data.userId is string &&
+        (
+          request.resource.data.userId == request.auth.uid ||
+          isMerchantForRestaurant(request.resource.data.restaurantId)
+        ) &&
+        get(/databases/$(database)/documents/restaurants/$(request.resource.data.restaurantId)).data.active == true &&
+        id == request.resource.data.restaurantId + '_' + request.resource.data.userId;
+      allow update: if isSignedIn() &&
+        request.resource.data.restaurantId == resource.data.restaurantId &&
+        request.resource.data.userId == resource.data.userId &&
+        (
+          resource.data.userId == request.auth.uid ||
+          isMerchantForRestaurant(resource.data.restaurantId)
+        );
+      allow delete: if false;
+    }
+
+    match /restaurants/{restaurantId} {
+      allow get, list: if isSignedIn() &&
+        (resource.data.active == true ||
+          resource.data.ownerId == request.auth.uid ||
+          isMerchantForRestaurant(restaurantId));
+      allow create: if restaurantOwnerCanCreate();
+      allow update: if restaurantOwnerCanUpdate() ||
+        linkedMerchantCanClaimRestaurant(restaurantId) ||
+        (
+          isMerchantForRestaurant(restaurantId) &&
+          request.resource.data.ownerId == resource.data.ownerId
+        );
+      allow delete: if false;
+    }
+
+    match /visits/{visitId} {
+      allow get, list: if isSignedIn() &&
+        (resource.data.userId == request.auth.uid ||
+          isMerchantForRestaurant(resource.data.restaurantId));
+      allow create: if isSignedIn() &&
+        isMerchantForRestaurant(request.resource.data.restaurantId) &&
+        request.resource.data.userId is string &&
+        request.resource.data.timestamp is timestamp;
+      allow update, delete: if false;
+    }
+
+    match /rewards/{rewardId} {
+      allow get, list: if isSignedIn() &&
+        (resource.data.userId == request.auth.uid ||
+          isMerchantForRestaurant(resource.data.restaurantId));
+      allow create: if isSignedIn() &&
+        isMerchantForRestaurant(request.resource.data.restaurantId) &&
+        request.resource.data.userId is string &&
+        request.resource.data.status == 'available';
+      allow update: if isSignedIn() &&
+        isMerchantForRestaurant(resource.data.restaurantId) &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.restaurantId == resource.data.restaurantId &&
+        request.resource.data.restaurantName == resource.data.restaurantName &&
+        request.resource.data.label == resource.data.label &&
+        request.resource.data.expiresAt == resource.data.expiresAt &&
+        resource.data.status == 'available' &&
+        request.resource.data.status == 'used' &&
+        request.resource.data.redeemedAt is timestamp &&
+        request.resource.data.redeemedBy == request.auth.uid &&
+        changedOnly(['status', 'redeemedAt', 'redeemedBy']);
+      allow delete: if false;
+    }
+
     match /rewardDefinitions/{id} {
-      allow read: if isSignedIn();
-      allow write: if isMerchant();
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() &&
+        isMerchantForRestaurant(request.resource.data.restaurantId);
+      allow update: if isSignedIn() &&
+        isMerchantForRestaurant(resource.data.restaurantId) &&
+        request.resource.data.restaurantId == resource.data.restaurantId;
+      allow delete: if false;
     }
 
-    // Liste "envie d'y aller" : des lieux réels enregistrés par un client,
-    // indépendants du programme de fidélité. Strictement privée à son
-    // propriétaire.
+    match /exclusiveOffers/{id} {
+      allow get, list: if isSignedIn() &&
+        (resource.data.active == true ||
+          isMerchantForRestaurant(resource.data.restaurantId));
+      allow create: if isSignedIn() &&
+        isMerchantForRestaurant(request.resource.data.restaurantId) &&
+        request.resource.data.active is bool &&
+        request.resource.data.title is string &&
+        request.resource.data.startsAt is timestamp &&
+        request.resource.data.endsAt is timestamp;
+      allow update: if isSignedIn() &&
+        isMerchantForRestaurant(resource.data.restaurantId) &&
+        request.resource.data.restaurantId == resource.data.restaurantId &&
+        request.resource.data.title is string &&
+        request.resource.data.startsAt is timestamp &&
+        request.resource.data.endsAt is timestamp;
+      allow delete: if isSignedIn() &&
+        isMerchantForRestaurant(resource.data.restaurantId);
+    }
+
+    match /checkIns/{id} {
+      allow get, list: if isSignedIn() &&
+        (resource.data.customerId == request.auth.uid ||
+          isMerchantForRestaurant(resource.data.restaurantId));
+      allow create: if isSignedIn() &&
+        request.resource.data.customerId == request.auth.uid &&
+        request.resource.data.restaurantId is string &&
+        request.resource.data.status == 'pending';
+      allow update: if isSignedIn() &&
+        (
+          (
+            isMerchantForRestaurant(resource.data.restaurantId) &&
+            request.resource.data.restaurantId == resource.data.restaurantId &&
+            request.resource.data.customerId == resource.data.customerId &&
+            (
+              (
+                request.resource.data.status == 'approved' &&
+                request.resource.data.validatedBy == request.auth.uid &&
+                request.resource.data.validatedAt is timestamp &&
+                request.resource.data.pointsAwarded is int &&
+                request.resource.data.visitId is string &&
+                changedOnly(['status', 'validatedAt', 'validatedBy', 'pointsAwarded', 'visitId'])
+              ) ||
+              (
+                request.resource.data.status == 'rejected' &&
+                request.resource.data.rejectedBy == request.auth.uid &&
+                request.resource.data.rejectedAt is timestamp &&
+                changedOnly(['status', 'rejectedAt', 'rejectedBy'])
+              ) ||
+              (
+                request.resource.data.status == 'expired' &&
+                changedOnly(['status'])
+              )
+            )
+          ) ||
+          (
+            resource.data.customerId == request.auth.uid &&
+            request.resource.data.restaurantId == resource.data.restaurantId &&
+            request.resource.data.customerId == resource.data.customerId &&
+            (
+              (
+                request.resource.data.status == 'cancelled' &&
+                request.resource.data.cancelledAt is timestamp &&
+                changedOnly(['status', 'cancelledAt'])
+              ) ||
+              (
+                request.resource.data.status == 'expired' &&
+                changedOnly(['status'])
+              )
+            )
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /notifications/{id} {
+      allow get, list: if isSignedIn() &&
+        resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() &&
+        (
+          (
+            request.resource.data.userId is string &&
+            request.resource.data.restaurantId is string &&
+            isMerchantForRestaurant(request.resource.data.restaurantId)
+          ) ||
+          (
+            request.resource.data.type == 'check_in_requested' &&
+            request.resource.data.userId ==
+              get(/databases/$(database)/documents/restaurants/$(request.resource.data.restaurantId)).data.ownerId &&
+            exists(/databases/$(database)/documents/checkIns/$(request.resource.data.relatedId)) &&
+            get(/databases/$(database)/documents/checkIns/$(request.resource.data.relatedId)).data.customerId == request.auth.uid &&
+            get(/databases/$(database)/documents/checkIns/$(request.resource.data.relatedId)).data.restaurantId == request.resource.data.restaurantId
+          )
+        );
+      allow update: if isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.type == resource.data.type &&
+        request.resource.data.title == resource.data.title &&
+        request.resource.data.body == resource.data.body &&
+        changedOnly(['read', 'isRead', 'readAt']);
+      allow delete: if false;
+    }
+
     match /wishlist/{id} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get, list: if isSignedIn() &&
+        resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid;
       allow update: if false;
+      allow delete: if isSignedIn() &&
+        resource.data.userId == request.auth.uid;
     }
 
-    // Avis clients sur un restaurant : lisibles par tout compte
-    // authentifié (moyenne affichée à tous), mais un client ne peut créer
-    // ou modifier que son propre avis (id de document = restaurantId_uid).
     match /reviews/{id} {
-      allow read: if isSignedIn();
+      allow get, list: if isSignedIn();
       allow create, update: if isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
         id == request.resource.data.restaurantId + '_' + request.auth.uid;
       allow delete: if false;
     }
 
-    // Parrainage : créé une seule fois, au moment de l'inscription du
-    // filleul, par le filleul lui-même (referredUserId == son propre uid)
-    // — c'est ce qui crédite le parrain de points de bienvenue.
     match /referrals/{id} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.referredUserId == request.auth.uid;
-      allow update, delete: if false;
+      allow get, list: if isSignedIn() &&
+        (resource.data.referrerId == request.auth.uid ||
+          resource.data.referredUserId == request.auth.uid);
+      allow create: if isSignedIn() &&
+        request.resource.data.referredUserId == request.auth.uid &&
+        request.resource.data.referrerId is string &&
+        request.resource.data.referrerId != request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.pointsEarned == 0 &&
+        (
+          (
+            !('restaurantId' in request.resource.data) &&
+            id == 'initial_' + request.resource.data.referredUserId
+          ) ||
+          (
+            request.resource.data.restaurantId is string &&
+            id == request.resource.data.restaurantId + '_' + request.resource.data.referredUserId
+          )
+        );
+      allow update: if isSignedIn() &&
+        resource.data.status == 'pending' &&
+        request.resource.data.referrerId == resource.data.referrerId &&
+        request.resource.data.referredUserId == resource.data.referredUserId &&
+        request.resource.data.status == 'rewarded' &&
+        request.resource.data.pointsEarned is int &&
+        request.resource.data.pointsEarned > 0 &&
+        request.resource.data.completedAt is timestamp &&
+        request.resource.data.rewardedAt is timestamp &&
+        request.resource.data.restaurantId is string &&
+        isMerchantForRestaurant(request.resource.data.restaurantId) &&
+        (
+          !('restaurantId' in resource.data) ||
+          resource.data.restaurantId == request.resource.data.restaurantId
+        ) &&
+        changedOnly(['restaurantId', 'status', 'pointsEarned', 'completedAt', 'rewardedAt', 'updatedAt']);
+      allow delete: if false;
     }
   }
 }

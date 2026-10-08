@@ -1,14 +1,22 @@
+import 'dart:async';
+
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../app.dart';
 import '../providers/app_providers.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/loyalo_logo.dart';
 import 'client/client_root_screen.dart';
+import 'client/client_visit_history_screen.dart';
+import 'client/referral_screen.dart';
+import 'client/rewards_screen.dart';
 import 'merchant/merchant_root_screen.dart';
+import 'merchant/validate_visit_screen.dart';
 import 'onboarding_screen.dart';
 import 'welcome_screen.dart';
 
@@ -82,11 +90,12 @@ class _AuthGateScreenState extends ConsumerState<AuthGateScreen> {
     }
 
     final repo = ref.read(loyaltyRepositoryProvider);
-    repo.startListening();
-
     final restaurantId = await repo.restaurantIdForMerchant(firebaseUser.uid);
     if (restaurantId != null) {
-      ref.read(currentMerchantRestaurantIdProvider.notifier).state = restaurantId;
+      repo.startListeningForMerchant(restaurantId);
+      _startNotifications(firebaseUser.uid, merchant: true);
+      ref.read(currentMerchantRestaurantIdProvider.notifier).state =
+          restaurantId;
       _goTo(const MerchantRootScreen());
       return;
     }
@@ -96,14 +105,70 @@ class _AuthGateScreenState extends ConsumerState<AuthGateScreen> {
       name: firebaseUser.displayName ?? '',
       email: firebaseUser.email ?? '',
     );
+    repo.startListeningForClient(firebaseUser.uid);
+    _startNotifications(firebaseUser.uid, merchant: false);
     ref.read(currentUserProvider.notifier).state = appUser;
     _goTo(const ClientRootScreen());
+  }
+
+  void _startNotifications(String userId, {required bool merchant}) {
+    // Les notifications sont un service secondaire : un APNs/FCM lent ou
+    // indisponible ne doit jamais empêcher l'utilisateur d'ouvrir l'app.
+    unawaited(
+      ref
+          .read(notificationServiceProvider)
+          .startForUser(
+            userId: userId,
+            onMessageOpened: (message) =>
+                _openNotificationTarget(message, merchant: merchant),
+          )
+          .catchError((Object error, StackTrace stackTrace) {
+            debugPrint('Notifications indisponibles au démarrage: $error');
+          }),
+    );
+  }
+
+  void _openNotificationTarget(
+    RemoteMessage message, {
+    required bool merchant,
+  }) {
+    final type = message.data['type'] as String?;
+    final navigator = loyaloNavigatorKey.currentState;
+    if (navigator == null) return;
+    if (merchant) {
+      if (type == 'check_in_requested') {
+        navigator.push(
+          MaterialPageRoute(builder: (_) => const ValidateVisitScreen()),
+        );
+      }
+      return;
+    }
+    switch (type) {
+      case 'reward_unlocked':
+      case 'new_offer':
+        navigator.push(
+          MaterialPageRoute(builder: (_) => const RewardsScreen()),
+        );
+        break;
+      case 'referral_rewarded':
+        navigator.push(
+          MaterialPageRoute(builder: (_) => const ReferralScreen()),
+        );
+        break;
+      case 'visit_validated':
+        navigator.push(
+          MaterialPageRoute(builder: (_) => const ClientVisitHistoryScreen()),
+        );
+        break;
+    }
   }
 
   void _goTo(Widget screen) {
     if (!mounted || _navigated) return;
     _navigated = true;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => screen));
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => screen));
   }
 
   /// Aucune session active : direction l'accueil classique, sauf au tout
@@ -126,9 +191,15 @@ class _AuthGateScreenState extends ConsumerState<AuthGateScreen> {
               const SizedBox(height: 28),
               const Icon(Icons.fingerprint, size: 56, color: AppColors.purple),
               const SizedBox(height: 12),
-              const Text('Déverrouillez pour continuer', style: TextStyle(fontSize: 14, color: AppColors.textGray)),
+              const Text(
+                'Déverrouillez pour continuer',
+                style: TextStyle(fontSize: 14, color: AppColors.textGray),
+              ),
               const SizedBox(height: 20),
-              ElevatedButton(onPressed: _retryUnlock, child: const Text('Réessayer')),
+              ElevatedButton(
+                onPressed: _retryUnlock,
+                child: const Text('Réessayer'),
+              ),
             ],
           ),
         ),

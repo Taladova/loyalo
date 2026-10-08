@@ -6,7 +6,11 @@ class LoyaloWordmark extends StatelessWidget {
   final double markSize;
   final bool showTagline;
 
-  const LoyaloWordmark({super.key, this.markSize = 96, this.showTagline = true});
+  const LoyaloWordmark({
+    super.key,
+    this.markSize = 96,
+    this.showTagline = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -14,10 +18,6 @@ class LoyaloWordmark extends StatelessWidget {
         ? 'assets/images/loyalo_logo.png'
         : 'assets/images/loyalo_logo_compact.png';
 
-    return Image.asset(
-      asset,
-      width: markSize * 2.75,
-      fit: BoxFit.contain,
-    );
+    return Image.asset(asset, width: markSize * 2.75, fit: BoxFit.contain);
   }
 }

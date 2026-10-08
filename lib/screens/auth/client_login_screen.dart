@@ -9,6 +9,7 @@ import '../../services/remember_me_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loyalo_logo.dart';
 import '../client/client_root_screen.dart';
+import 'client_signup_screen.dart';
 
 class ClientLoginScreen extends ConsumerStatefulWidget {
   const ClientLoginScreen({super.key});
@@ -18,15 +19,12 @@ class ClientLoginScreen extends ConsumerStatefulWidget {
 }
 
 class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
-  final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _referralCodeController = TextEditingController();
   final _authService = AuthService();
   final _rememberMeService = RememberMeService();
   bool _loading = false;
   bool _rememberMe = true;
-  bool _showReferralField = false;
   String? _error;
 
   @override
@@ -36,22 +34,22 @@ class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
   }
 
   Future<void> _prefill() async {
-    final (name, email, password) = await _rememberMeService.loadClient();
+    final (_, email, password) = await _rememberMeService.loadClient();
     if (!mounted) return;
     setState(() {
-      _nameController.text = name;
       _emailController.text = email;
       _passwordController.text = password;
     });
   }
 
   Future<void> _login() async {
-    final name = _nameController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    if (name.isEmpty || email.isEmpty || password.isEmpty) {
-      setState(() => _error = 'Merci de renseigner votre prénom, votre email et un mot de passe.');
+    if (email.isEmpty || password.isEmpty) {
+      setState(
+        () => _error = 'Merci de renseigner votre email et votre mot de passe.',
+      );
       return;
     }
 
@@ -61,19 +59,25 @@ class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
     });
 
     try {
-      final firebaseUser = await _authService.signUpOrSignIn(email: email, password: password);
+      final firebaseUser = await _authService.signIn(
+        email: email,
+        password: password,
+      );
       final repo = ref.read(loyaltyRepositoryProvider);
-      repo.startListening();
       final appUser = await repo.loadOrCreateClientProfile(
         uid: firebaseUser.uid,
-        name: name,
+        name: '',
         email: email,
-        referredByCode: _referralCodeController.text,
       );
+      repo.startListeningForClient(firebaseUser.uid);
       ref.read(currentUserProvider.notifier).state = appUser;
       AnalyticsService.logClientLogin();
       if (_rememberMe) {
-        await _rememberMeService.saveClient(name: name, email: email, password: password);
+        await _rememberMeService.saveClient(
+          name: appUser.name,
+          email: email,
+          password: password,
+        );
       } else {
         await _rememberMeService.clearClient();
       }
@@ -91,13 +95,19 @@ class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
   Future<void> _forgotPassword() async {
     final email = _emailController.text.trim();
     if (email.isEmpty) {
-      _showMessage('Mot de passe oublié', 'Renseignez votre email ci-dessus puis réessayez.');
+      _showMessage(
+        'Mot de passe oublié',
+        'Renseignez votre email ci-dessus puis réessayez.',
+      );
       return;
     }
     try {
       await _authService.sendPasswordResetEmail(email: email);
       if (!mounted) return;
-      _showMessage('Email envoyé', 'Un lien de réinitialisation a été envoyé à $email.');
+      _showMessage(
+        'Email envoyé',
+        'Un lien de réinitialisation a été envoyé à $email.',
+      );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       _showMessage('Mot de passe oublié', AuthService.readableError(e));
@@ -110,7 +120,12 @@ class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
         content: Text(message),
-        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('OK'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
@@ -127,21 +142,16 @@ class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Center(child: LoyaloWordmark(markSize: 84, showTagline: false)),
-              const SizedBox(height: 36),
-              const Text('Connexion cliente', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 4),
+              const Center(
+                child: LoyaloWordmark(markSize: 84, showTagline: false),
+              ),
+              const SizedBox(height: 12),
               const Text(
-                'Première visite ? Un compte est créé automatiquement.',
-                style: TextStyle(fontSize: 12, color: AppColors.textGray),
+                'Connexion cliente',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
               ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Votre prénom'),
-                textInputAction: TextInputAction.next,
-              ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 28),
               TextField(
                 controller: _emailController,
                 decoration: const InputDecoration(labelText: 'Email'),
@@ -155,24 +165,6 @@ class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
                 obscureText: true,
                 onSubmitted: (_) => _login(),
               ),
-              const SizedBox(height: 4),
-              if (!_showReferralField)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton(
-                    onPressed: () => setState(() => _showReferralField = true),
-                    style: TextButton.styleFrom(padding: EdgeInsets.zero, alignment: Alignment.centerLeft),
-                    child: const Text('J\'ai un code parrain', style: TextStyle(fontSize: 12.5)),
-                  ),
-                )
-              else ...[
-                TextField(
-                  controller: _referralCodeController,
-                  textCapitalization: TextCapitalization.characters,
-                  decoration: const InputDecoration(labelText: 'Code parrain (optionnel)'),
-                ),
-                const SizedBox(height: 4),
-              ],
               CheckboxListTile(
                 value: _rememberMe,
                 onChanged: (v) => setState(() => _rememberMe = v ?? true),
@@ -180,36 +172,54 @@ class _ClientLoginScreenState extends ConsumerState<ClientLoginScreen> {
                 contentPadding: EdgeInsets.zero,
                 dense: true,
                 activeColor: AppColors.teal,
-                title: const Text('Se souvenir de moi', style: TextStyle(fontSize: 13)),
+                title: const Text(
+                  'Se souvenir de moi',
+                  style: TextStyle(fontSize: 13),
+                ),
               ),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: _forgotPassword,
-                  child: const Text('Mot de passe oublié ?', style: TextStyle(color: AppColors.textGray)),
+                  child: const Text(
+                    'Mot de passe oublié ?',
+                    style: TextStyle(color: AppColors.textGray),
+                  ),
                 ),
               ),
               if (_error != null) ...[
-                const SizedBox(height: 8),
-                Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12.5)),
+                const SizedBox(height: 4),
+                Text(
+                  _error!,
+                  style: const TextStyle(
+                    color: AppColors.danger,
+                    fontSize: 12.5,
+                  ),
+                ),
               ],
-              const SizedBox(height: 22),
+              const SizedBox(height: 10),
               ElevatedButton(
                 onPressed: _loading ? null : _login,
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.teal),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.teal,
+                ),
                 child: _loading
                     ? const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          color: Colors.white,
+                        ),
                       )
-                    : const Text('Continuer'),
+                    : const Text('Se connecter'),
               ),
               const SizedBox(height: 14),
-              const Text(
-                'Vos données sont stockées de façon sécurisée.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: AppColors.textGray),
+              TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ClientSignupScreen()),
+                ),
+                child: const Text('Créer un compte'),
               ),
             ],
           ),

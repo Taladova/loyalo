@@ -14,7 +14,12 @@ class ReferralsListScreen extends ConsumerWidget {
     final user = ref.watch(currentUserProvider)!;
     final repo = ref.watch(loyaltyRepositoryProvider);
     final friends = repo.referralsFor(user.id);
-    final joined = friends.where((f) => f.status == ReferralStatus.joined).length;
+    final rewarded = friends
+        .where((f) => f.status == ReferralStatus.rewarded)
+        .length;
+    final pending = friends
+        .where((f) => f.status == ReferralStatus.pending)
+        .length;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mes filleuls')),
@@ -23,7 +28,7 @@ class ReferralsListScreen extends ConsumerWidget {
               child: Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
-                  'Vous n\'avez invité personne pour le moment.\nPartagez votre code pour gagner des points !',
+                  'Vous n\'avez invité personne pour le moment.\nPartagez votre code pour gagner des points après une première visite.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppColors.textGray),
                 ),
@@ -43,62 +48,102 @@ class ReferralsListScreen extends ConsumerWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
                       _Stat(label: 'Invités', value: '${friends.length}'),
-                      _Stat(label: 'Ont rejoint', value: '$joined'),
-                      _Stat(label: 'Points gagnés', value: '${friends.fold(0, (a, f) => a + f.pointsEarned)}'),
+                      _Stat(label: 'En attente', value: '$pending'),
+                      _Stat(label: 'Validés', value: '$rewarded'),
+                      _Stat(
+                        label: 'Points gagnés',
+                        value:
+                            '${friends.fold(0, (a, f) => a + f.pointsEarned)}',
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 20),
-                ...friends.map((f) => Container(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 20,
-                            backgroundColor: AppColors.lavender,
-                            child: Text(f.name.isNotEmpty ? f.name[0].toUpperCase() : '?',
-                                style: const TextStyle(color: AppColors.purple, fontWeight: FontWeight.w700)),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(f.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                                Text('Invité le ${DateFormat('dd/MM/yyyy').format(f.invitedAt)}',
-                                    style: const TextStyle(fontSize: 12, color: AppColors.textGray)),
-                              ],
+                ...friends.map(
+                  (f) => Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 20,
+                          backgroundColor: AppColors.lavender,
+                          child: Text(
+                            f.name.isNotEmpty ? f.name[0].toUpperCase() : '?',
+                            style: const TextStyle(
+                              color: AppColors.purple,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                          if (f.status == ReferralStatus.joined)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: AppColors.success.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                f.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                              child: Text('+${f.pointsEarned} pts',
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.success)),
-                            )
-                          else
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: AppColors.orange.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(20),
+                              Text(
+                                'Invité le ${DateFormat('dd/MM/yyyy').format(f.invitedAt)}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textGray,
+                                ),
                               ),
-                              child: const Text('En attente',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.orange)),
+                            ],
+                          ),
+                        ),
+                        if (f.status == ReferralStatus.rewarded)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
                             ),
-                        ],
-                      ),
-                    )),
+                            decoration: BoxDecoration(
+                              color: AppColors.success.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              '+${f.pointsEarned} pts',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.success,
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.orange.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              'En attente',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.orange,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
     );
@@ -115,8 +160,18 @@ class _Stat extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.purple)),
-        Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textGray)),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: AppColors.purple,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: AppColors.textGray),
+        ),
       ],
     );
   }

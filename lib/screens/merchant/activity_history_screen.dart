@@ -18,7 +18,10 @@ class ActivityHistoryScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Activité récente')),
       body: activity.isEmpty
           ? const Center(
-              child: Text('Aucune activité pour le moment.', style: TextStyle(color: AppColors.textGray)),
+              child: Text(
+                'Aucune activité pour le moment.',
+                style: TextStyle(color: AppColors.textGray),
+              ),
             )
           : ListView.separated(
               padding: const EdgeInsets.all(20),
@@ -38,17 +41,33 @@ class ActivityHistoryScreen extends ConsumerWidget {
                       const CircleAvatar(
                         radius: 16,
                         backgroundColor: AppColors.cloud,
-                        child: Icon(Icons.check, color: AppColors.success, size: 16),
+                        child: Icon(
+                          Icons.check,
+                          color: AppColors.success,
+                          size: 16,
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Visite validée — ${repo.nameForClient(v.userId)}',
-                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                            Text(DateFormat('dd/MM/yyyy à HH:mm').format(v.timestamp),
-                                style: const TextStyle(fontSize: 11, color: AppColors.textGray)),
+                            Text(
+                              'Visite validée — ${repo.nameForClient(v.userId)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              DateFormat(
+                                'dd/MM/yyyy à HH:mm',
+                              ).format(v.timestamp),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textGray,
+                              ),
+                            ),
                           ],
                         ),
                       ),

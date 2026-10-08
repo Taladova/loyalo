@@ -19,7 +19,11 @@ class RememberMeService {
 
   final _secureStorage = const FlutterSecureStorage();
 
-  Future<void> saveClient({required String name, required String email, required String password}) async {
+  Future<void> saveClient({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_clientNameKey, name);
     await prefs.setString(_clientEmailKey, email);
@@ -43,7 +47,10 @@ class RememberMeService {
     );
   }
 
-  Future<void> saveMerchant({required String email, required String password}) async {
+  Future<void> saveMerchant({
+    required String email,
+    required String password,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_merchantEmailKey, email);
     await _secureStorage.write(key: _merchantPasswordKey, value: password);

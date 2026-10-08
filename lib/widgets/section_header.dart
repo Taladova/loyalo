@@ -13,12 +13,25 @@ class SectionHeader extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.textDark)),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textOf(context),
+          ),
+        ),
         if (onSeeAll != null)
           GestureDetector(
             onTap: onSeeAll,
-            child: const Text('Voir tout',
-                style: TextStyle(fontSize: 13, color: AppColors.purple, fontWeight: FontWeight.w600)),
+            child: const Text(
+              'Voir tout',
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.purple,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
       ],
     );

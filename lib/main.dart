@@ -6,10 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'firebase_options.dart';
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await NotificationService().initializeAppHandlers();
 
   // Si Crashlytics lui-même échoue à enregistrer une erreur (ex: plugin
   // natif pas encore lié après un ajout de dépendance), il ne faut surtout

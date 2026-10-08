@@ -28,6 +28,8 @@
 		<true/>
 		<key>NSLocationWhenInUseUsageDescription</key>
 		<string>Loyalo utilise votre position pour afficher les restaurants partenaires sur la carte.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Loyalo utilise votre galerie pour ajouter le logo et les photos de votre commerce.</string>
 		<key>NSFaceIDUsageDescription</key>
 		<string>Loyalo utilise Face ID pour déverrouiller rapidement votre compte.</string>
 		<key>UIApplicationSceneManifest</key>

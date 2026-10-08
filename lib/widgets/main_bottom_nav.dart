@@ -27,10 +27,13 @@ class MainBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final surface = AppTheme.surfaceOf(context);
+    final border = AppTheme.borderOf(context);
+    final muted = AppTheme.mutedOf(context);
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: AppColors.border)),
+      decoration: BoxDecoration(
+        color: surface,
+        border: Border(top: BorderSide(color: border)),
       ),
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: SafeArea(
@@ -67,14 +70,22 @@ class MainBottomNav extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(item.icon, color: selected ? AppColors.purple : AppColors.textGray, size: 22),
+                    Icon(
+                      item.icon,
+                      color: selected ? AppColors.purple : muted,
+                      size: 22,
+                    ),
                     const SizedBox(height: 3),
-                    Text(item.label,
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          color: selected ? AppColors.purple : AppColors.textGray,
-                          fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                        )),
+                    Text(
+                      item.label,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: selected ? AppColors.purple : muted,
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
                   ],
                 ),
               ),

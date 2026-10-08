@@ -23,15 +23,25 @@ class StatPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = iconColor ?? AppColors.purple;
+    final surface = AppTheme.surfaceOf(context);
+    final text = AppTheme.textOf(context);
+    final muted = AppTheme.mutedOf(context);
+    final border = AppTheme.borderOf(context);
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: border),
         boxShadow: [
-          BoxShadow(color: AppColors.navy.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: AppTheme.isDark(context) ? 0.14 : 0.04,
+            ),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
@@ -41,7 +51,10 @@ class StatPill extends StatelessWidget {
             Container(
               width: 30,
               height: 30,
-              decoration: BoxDecoration(color: accent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(9)),
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(9),
+              ),
               child: Icon(icon, size: 16, color: accent),
             ),
             const SizedBox(height: 10),
@@ -50,22 +63,36 @@ class StatPill extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12, color: AppColors.textGray, fontWeight: FontWeight.w500),
+            style: TextStyle(
+              fontSize: 12,
+              color: muted,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: 4),
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(value,
-                  style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                  color: text,
+                ),
+              ),
               if (trend != null) ...[
                 const SizedBox(width: 6),
                 Flexible(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
-                      color: (trendUp ? AppColors.success : AppColors.danger).withValues(alpha: 0.12),
+                      color: (trendUp ? AppColors.success : AppColors.danger)
+                          .withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(

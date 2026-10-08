@@ -7,12 +7,14 @@ class PlaceResult {
   final String address;
   final double latitude;
   final double longitude;
+  final String? imageUrl;
 
   const PlaceResult({
     required this.name,
     required this.address,
     required this.latitude,
     required this.longitude,
+    this.imageUrl,
   });
 }
 
@@ -23,7 +25,11 @@ class PlaceResult {
 class PlacesSearchService {
   static const _endpoint = 'https://nominatim.openstreetmap.org/search';
 
-  Future<List<PlaceResult>> search(String query, {double? nearLat, double? nearLng}) async {
+  Future<List<PlaceResult>> search(
+    String query, {
+    double? nearLat,
+    double? nearLng,
+  }) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return [];
 
@@ -36,12 +42,16 @@ class PlacesSearchService {
     if (nearLat != null && nearLng != null) {
       // Cadre de recherche large autour de la position, pour prioriser les
       // résultats proches sans exclure le reste.
-      params['viewbox'] = '${nearLng - 0.3},${nearLat + 0.3},${nearLng + 0.3},${nearLat - 0.3}';
+      params['viewbox'] =
+          '${nearLng - 0.3},${nearLat + 0.3},${nearLng + 0.3},${nearLat - 0.3}';
       params['bounded'] = '0';
     }
 
     final uri = Uri.parse(_endpoint).replace(queryParameters: params);
-    final response = await http.get(uri, headers: {'User-Agent': 'LoyaloApp/1.0 (contact@taladova.com)'});
+    final response = await http.get(
+      uri,
+      headers: {'User-Agent': 'LoyaloApp/1.0 (contact@taladova.com)'},
+    );
 
     if (response.statusCode != 200) return [];
 

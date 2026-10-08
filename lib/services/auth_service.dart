@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'notification_service.dart';
+
 /// Fine couche au-dessus de Firebase Auth. Ne connaît rien du modèle
 /// métier (client/commerçant) : ça reste la responsabilité de
 /// [LoyaltyRepository] et des écrans de connexion.
@@ -13,13 +15,22 @@ class AuthService {
   /// Crée un compte, ou se connecte si un compte existe déjà avec cet
   /// email (évite d'avoir à distinguer "inscription" et "connexion"
   /// dans l'app pendant la phase de test).
-  Future<User> signUpOrSignIn({required String email, required String password}) async {
+  Future<User> signUpOrSignIn({
+    required String email,
+    required String password,
+  }) async {
     try {
-      final cred = await _auth.createUserWithEmailAndPassword(email: email, password: password);
+      final cred = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
       return cred.user!;
     } on FirebaseAuthException catch (e) {
       if (e.code == 'email-already-in-use') {
-        final cred = await _auth.signInWithEmailAndPassword(email: email, password: password);
+        final cred = await _auth.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
         return cred.user!;
       }
       rethrow;
@@ -27,11 +38,17 @@ class AuthService {
   }
 
   Future<User> signIn({required String email, required String password}) async {
-    final cred = await _auth.signInWithEmailAndPassword(email: email, password: password);
+    final cred = await _auth.signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
     return cred.user!;
   }
 
-  Future<void> signOut() => _auth.signOut();
+  Future<void> signOut() async {
+    await NotificationService().detachCurrentDevice(_auth.currentUser?.uid);
+    await _auth.signOut();
+  }
 
   Future<void> sendPasswordResetEmail({required String email}) =>
       _auth.sendPasswordResetEmail(email: email);
@@ -41,6 +58,7 @@ class AuthService {
   /// (FirebaseAuthException code `requires-recent-login`) : l'appelant
   /// doit alors inviter l'utilisateur à se reconnecter puis réessayer.
   Future<void> deleteAccount() async {
+    await NotificationService().detachCurrentDevice(_auth.currentUser?.uid);
     await _auth.currentUser?.delete();
   }
 

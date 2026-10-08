@@ -21,6 +21,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notifVisits = true;
   bool _notifRewards = true;
   bool _notifOffers = false;
+  bool _notifReferrals = true;
 
   final _biometricService = BiometricService();
   bool _biometricSupported = false;
@@ -58,7 +59,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       builder: (_) => AlertDialog(
         title: Text(title),
         content: Text(message),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Fermer'),
+          ),
+        ],
       ),
     );
   }
@@ -72,7 +78,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           'Votre profil et votre accès seront définitivement supprimés. Voulez-vous vraiment continuer ?',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Annuler'),
+          ),
           TextButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
@@ -97,12 +106,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   builder: (_) => AlertDialog(
                     title: const Text('Suppression impossible'),
                     content: Text(message),
-                    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('OK'),
+                      ),
+                    ],
                   ),
                 );
               }
             },
-            child: const Text('Supprimer', style: TextStyle(color: AppColors.danger)),
+            child: const Text(
+              'Supprimer',
+              style: TextStyle(color: AppColors.danger),
+            ),
           ),
         ],
       ),
@@ -123,24 +140,69 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             children: [
               SwitchListTile(
                 title: const Text('Rappels de visite'),
-                subtitle: const Text('Un rappel si vous n\'avez pas visité un restaurant depuis longtemps'),
+                subtitle: const Text(
+                  'Un rappel si vous n\'avez pas visité un restaurant depuis longtemps',
+                ),
                 value: _notifVisits,
                 activeThumbColor: AppColors.purple,
-                onChanged: (v) => setState(() => _notifVisits = v),
+                onChanged: (v) {
+                  setState(() => _notifVisits = v);
+                  ref
+                      .read(loyaltyRepositoryProvider)
+                      .updateNotificationPreference(
+                        userId: user.id,
+                        key: 'visits',
+                        enabled: v,
+                      );
+                },
               ),
               const Divider(height: 1),
               SwitchListTile(
                 title: const Text('Récompenses débloquées'),
                 value: _notifRewards,
                 activeThumbColor: AppColors.purple,
-                onChanged: (v) => setState(() => _notifRewards = v),
+                onChanged: (v) {
+                  setState(() => _notifRewards = v);
+                  ref
+                      .read(loyaltyRepositoryProvider)
+                      .updateNotificationPreference(
+                        userId: user.id,
+                        key: 'rewards',
+                        enabled: v,
+                      );
+                },
               ),
               const Divider(height: 1),
               SwitchListTile(
                 title: const Text('Offres du jour'),
                 value: _notifOffers,
                 activeThumbColor: AppColors.purple,
-                onChanged: (v) => setState(() => _notifOffers = v),
+                onChanged: (v) {
+                  setState(() => _notifOffers = v);
+                  ref
+                      .read(loyaltyRepositoryProvider)
+                      .updateNotificationPreference(
+                        userId: user.id,
+                        key: 'offers',
+                        enabled: v,
+                      );
+                },
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                title: const Text('Parrainage'),
+                value: _notifReferrals,
+                activeThumbColor: AppColors.purple,
+                onChanged: (v) {
+                  setState(() => _notifReferrals = v);
+                  ref
+                      .read(loyaltyRepositoryProvider)
+                      .updateNotificationPreference(
+                        userId: user.id,
+                        key: 'referrals',
+                        enabled: v,
+                      );
+                },
               ),
             ],
           ),
@@ -151,7 +213,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 SwitchListTile(
                   title: const Text('Déverrouillage Face ID / empreinte'),
-                  subtitle: const Text('Confirmez votre identité avant d\'accéder à l\'app'),
+                  subtitle: const Text(
+                    'Confirmez votre identité avant d\'accéder à l\'app',
+                  ),
                   value: _biometricEnabled,
                   activeThumbColor: AppColors.purple,
                   onChanged: _toggleBiometric,
@@ -166,14 +230,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.person_outline),
                 title: const Text('Nom'),
-                trailing: Text(user.name, style: const TextStyle(color: AppColors.textGray)),
+                trailing: Text(
+                  user.name,
+                  style: const TextStyle(color: AppColors.textGray),
+                ),
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.email_outlined),
                 title: const Text('Email'),
-                trailing: Text(user.email.isEmpty ? 'Non renseigné' : user.email,
-                    style: const TextStyle(color: AppColors.textGray)),
+                trailing: Text(
+                  user.email.isEmpty ? 'Non renseigné' : user.email,
+                  style: const TextStyle(color: AppColors.textGray),
+                ),
               ),
             ],
           ),
@@ -184,7 +253,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.help_outline),
                 title: const Text('Aide & support'),
-                trailing: const Icon(Icons.chevron_right, color: AppColors.textGray),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppColors.textGray,
+                ),
                 onTap: () => _showInfoDialog(
                   'Aide & support',
                   'Pour toute question sur votre compte ou une récompense, contactez le restaurant partenaire '
@@ -195,10 +267,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.privacy_tip_outlined),
                 title: const Text('Politique de confidentialité'),
-                trailing: const Icon(Icons.chevron_right, color: AppColors.textGray),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppColors.textGray,
+                ),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => const LegalScreen(title: 'Politique de confidentialité', content: kPrivacyPolicyText),
+                    builder: (_) => const LegalScreen(
+                      title: 'Politique de confidentialité',
+                      content: kPrivacyPolicyText,
+                    ),
                   ),
                 ),
               ),
@@ -206,10 +284,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.description_outlined),
                 title: const Text('Conditions d\'utilisation'),
-                trailing: const Icon(Icons.chevron_right, color: AppColors.textGray),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppColors.textGray,
+                ),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => const LegalScreen(title: 'Conditions d\'utilisation', content: kTermsOfServiceText),
+                    builder: (_) => const LegalScreen(
+                      title: 'Conditions d\'utilisation',
+                      content: kTermsOfServiceText,
+                    ),
                   ),
                 ),
               ),
@@ -219,8 +303,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _SettingsCard(
             children: [
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: AppColors.danger),
-                title: const Text('Supprimer mon compte', style: TextStyle(color: AppColors.danger)),
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: AppColors.danger,
+                ),
+                title: const Text(
+                  'Supprimer mon compte',
+                  style: TextStyle(color: AppColors.danger),
+                ),
                 onTap: _confirmDeleteAccount,
               ),
             ],
@@ -240,8 +330,15 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8, left: 4),
-      child: Text(text.toUpperCase(),
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textGray, letterSpacing: 0.5)),
+      child: Text(
+        text.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textGray,
+          letterSpacing: 0.5,
+        ),
+      ),
     );
   }
 }
@@ -253,11 +350,13 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
+    final surface = AppTheme.surfaceOf(context);
+    final border = AppTheme.borderOf(context);
+    return Material(
+      color: surface,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        side: BorderSide(color: border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(children: children),

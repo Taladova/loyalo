@@ -28,7 +28,9 @@ class RewardDefinition {
     );
   }
 
-  factory RewardDefinition.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+  factory RewardDefinition.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data()!;
     return RewardDefinition(
       id: doc.id,

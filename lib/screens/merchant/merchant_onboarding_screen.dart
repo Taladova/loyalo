@@ -7,19 +7,22 @@ const _merchantPages = [
   OnboardingPageData(
     icon: Icons.storefront_outlined,
     title: 'Créez votre espace commerçant',
-    description: 'Enregistrez votre restaurant en quelques secondes et définissez vos propres règles de '
+    description:
+        'Enregistrez votre restaurant en quelques secondes et définissez vos propres règles de '
         'récompense fidélité.',
   ),
   OnboardingPageData(
     icon: Icons.pin_outlined,
     title: 'Validez chaque visite en 2 secondes',
-    description: 'Le client vous montre son code personnel à 6 chiffres, vous le saisissez — la visite est '
+    description:
+        'Le client vous montre son code personnel à 6 chiffres, vous le saisissez — la visite est '
         'enregistrée, sans triche possible.',
   ),
   OnboardingPageData(
     icon: Icons.bar_chart,
     title: 'Suivez votre activité en temps réel',
-    description: 'Visites, nouveaux clients, récompenses distribuées : toutes vos statistiques, mises à jour '
+    description:
+        'Visites, nouveaux clients, récompenses distribuées : toutes vos statistiques, mises à jour '
         'instantanément.',
   ),
 ];

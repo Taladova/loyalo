@@ -14,38 +14,64 @@ class RewardCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final used = reward.status == RewardStatus.used;
     final dateLabel = DateFormat('dd/MM/yyyy').format(reward.expiresAt);
+    final surface = AppTheme.surfaceOf(context);
+    final text = AppTheme.textOf(context);
+    final muted = AppTheme.mutedOf(context);
+    final border = AppTheme.borderOf(context);
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        color: surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: border.withValues(alpha: 0.65)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: AppTheme.isDark(context) ? 0.16 : 0.05,
+            ),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 58,
+            height: 58,
             decoration: BoxDecoration(
-              color: AppColors.orange.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
+              gradient: AppColors.brandGradient,
+              borderRadius: BorderRadius.circular(16),
             ),
-            child: const Icon(Icons.card_giftcard, color: AppColors.orange),
+            child: const Icon(Icons.card_giftcard, color: Colors.white),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(reward.label,
-                    style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.textDark)),
+                Text(
+                  reward.label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: text,
+                    fontSize: 13,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text(reward.restaurantName, style: const TextStyle(fontSize: 12, color: AppColors.textGray)),
+                Text(
+                  reward.restaurantName,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: text,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 Text(
                   used ? 'Utilisée' : 'Valable jusqu\'au $dateLabel',
-                  style: TextStyle(fontSize: 11, color: used ? AppColors.textGray : AppColors.textGray),
+                  style: TextStyle(fontSize: 11, color: muted),
                 ),
               ],
             ),
@@ -56,10 +82,18 @@ class RewardCard extends StatelessWidget {
               style: TextButton.styleFrom(
                 backgroundColor: AppColors.purple,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
               ),
-              child: const Text('Utiliser', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              child: const Text(
+                'Utiliser',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
             ),
         ],
       ),

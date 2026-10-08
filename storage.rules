@@ -1,0 +1,35 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMerchantOwner(merchantId) {
+      return isSignedIn() && request.auth.uid == merchantId;
+    }
+
+    function isSupportedImage() {
+      return request.resource != null &&
+        request.resource.contentType.matches('image/(jpeg|jpg|png|webp)');
+    }
+
+    function isReasonableSize() {
+      return request.resource != null && request.resource.size <= 8 * 1024 * 1024;
+    }
+
+    match /merchants/{merchantId}/{imageType}/{fileName} {
+      allow read: if true;
+      allow create, update: if isMerchantOwner(merchantId) &&
+        imageType in ['logo', 'cover', 'gallery'] &&
+        isSupportedImage() &&
+        isReasonableSize();
+      allow delete: if isMerchantOwner(merchantId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

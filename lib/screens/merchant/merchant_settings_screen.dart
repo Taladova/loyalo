@@ -8,9 +8,20 @@ import '../../services/auth_service.dart';
 import '../../theme/app_theme.dart';
 import '../legal_screen.dart';
 import '../welcome_screen.dart';
+import 'merchant_establishment_screen.dart';
 
-class MerchantSettingsScreen extends ConsumerWidget {
+class MerchantSettingsScreen extends ConsumerStatefulWidget {
   const MerchantSettingsScreen({super.key});
+
+  @override
+  ConsumerState<MerchantSettingsScreen> createState() =>
+      _MerchantSettingsScreenState();
+}
+
+class _MerchantSettingsScreenState
+    extends ConsumerState<MerchantSettingsScreen> {
+  bool _notifCheckIns = true;
+  bool _notifImportant = true;
 
   void _showInfoDialog(BuildContext context, String title, String message) {
     showDialog(
@@ -18,7 +29,12 @@ class MerchantSettingsScreen extends ConsumerWidget {
       builder: (_) => AlertDialog(
         title: Text(title),
         content: Text(message),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Fermer'),
+          ),
+        ],
       ),
     );
   }
@@ -33,7 +49,10 @@ class MerchantSettingsScreen extends ConsumerWidget {
           'déjà validées restent visibles pour vos clients. Voulez-vous vraiment continuer ?',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Annuler'),
+          ),
           TextButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
@@ -56,7 +75,10 @@ class MerchantSettingsScreen extends ConsumerWidget {
                 _showInfoDialog(context, 'Suppression impossible', message);
               }
             },
-            child: const Text('Supprimer', style: TextStyle(color: AppColors.danger)),
+            child: const Text(
+              'Supprimer',
+              style: TextStyle(color: AppColors.danger),
+            ),
           ),
         ],
       ),
@@ -64,9 +86,12 @@ class MerchantSettingsScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final restaurantId = ref.watch(currentMerchantRestaurantIdProvider)!;
-    final restaurant = ref.watch(loyaltyRepositoryProvider).restaurantById(restaurantId);
+    final restaurant = ref
+        .watch(loyaltyRepositoryProvider)
+        .restaurantById(restaurantId);
+    final uid = AuthService().currentUser?.uid ?? '';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Paramètres')),
@@ -78,14 +103,64 @@ class MerchantSettingsScreen extends ConsumerWidget {
             children: [
               ListTile(
                 leading: const Icon(Icons.storefront_outlined),
-                title: const Text('Nom'),
-                trailing: Text(restaurant.name, style: const TextStyle(color: AppColors.textGray)),
+                title: const Text('Mon établissement'),
+                subtitle: const Text('Modifier ma fiche publique'),
+                trailing: Text(
+                  restaurant.name,
+                  style: const TextStyle(color: AppColors.textGray),
+                ),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const MerchantEstablishmentScreen(),
+                  ),
+                ),
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.email_outlined),
                 title: const Text('Email'),
-                trailing: Text(AuthService().currentUser?.email ?? '', style: const TextStyle(color: AppColors.textGray)),
+                trailing: Text(
+                  AuthService().currentUser?.email ?? '',
+                  style: const TextStyle(color: AppColors.textGray),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _SectionLabel('Notifications'),
+          _SettingsCard(
+            children: [
+              SwitchListTile(
+                title: const Text('Check-ins'),
+                subtitle: const Text('Clients en attente de validation'),
+                value: _notifCheckIns,
+                activeThumbColor: AppColors.purple,
+                onChanged: (value) {
+                  setState(() => _notifCheckIns = value);
+                  ref
+                      .read(loyaltyRepositoryProvider)
+                      .updateNotificationPreference(
+                        userId: uid,
+                        key: 'merchantCheckIns',
+                        enabled: value,
+                      );
+                },
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                title: const Text('Activité importante'),
+                value: _notifImportant,
+                activeThumbColor: AppColors.purple,
+                onChanged: (value) {
+                  setState(() => _notifImportant = value);
+                  ref
+                      .read(loyaltyRepositoryProvider)
+                      .updateNotificationPreference(
+                        userId: uid,
+                        key: 'important',
+                        enabled: value,
+                      );
+                },
               ),
             ],
           ),
@@ -96,7 +171,10 @@ class MerchantSettingsScreen extends ConsumerWidget {
               ListTile(
                 leading: const Icon(Icons.help_outline),
                 title: const Text('Aide & support'),
-                trailing: const Icon(Icons.chevron_right, color: AppColors.textGray),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppColors.textGray,
+                ),
                 onTap: () => _showInfoDialog(
                   context,
                   'Aide & support',
@@ -107,10 +185,16 @@ class MerchantSettingsScreen extends ConsumerWidget {
               ListTile(
                 leading: const Icon(Icons.privacy_tip_outlined),
                 title: const Text('Politique de confidentialité'),
-                trailing: const Icon(Icons.chevron_right, color: AppColors.textGray),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppColors.textGray,
+                ),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => const LegalScreen(title: 'Politique de confidentialité', content: kPrivacyPolicyText),
+                    builder: (_) => const LegalScreen(
+                      title: 'Politique de confidentialité',
+                      content: kPrivacyPolicyText,
+                    ),
                   ),
                 ),
               ),
@@ -118,10 +202,16 @@ class MerchantSettingsScreen extends ConsumerWidget {
               ListTile(
                 leading: const Icon(Icons.description_outlined),
                 title: const Text('Conditions d\'utilisation'),
-                trailing: const Icon(Icons.chevron_right, color: AppColors.textGray),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppColors.textGray,
+                ),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => const LegalScreen(title: 'Conditions d\'utilisation', content: kTermsOfServiceText),
+                    builder: (_) => const LegalScreen(
+                      title: 'Conditions d\'utilisation',
+                      content: kTermsOfServiceText,
+                    ),
                   ),
                 ),
               ),
@@ -131,8 +221,14 @@ class MerchantSettingsScreen extends ConsumerWidget {
           _SettingsCard(
             children: [
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: AppColors.danger),
-                title: const Text('Supprimer mon compte', style: TextStyle(color: AppColors.danger)),
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: AppColors.danger,
+                ),
+                title: const Text(
+                  'Supprimer mon compte',
+                  style: TextStyle(color: AppColors.danger),
+                ),
                 onTap: () => _confirmDeleteAccount(context, ref),
               ),
             ],
@@ -152,8 +248,15 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8, left: 4),
-      child: Text(text.toUpperCase(),
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textGray, letterSpacing: 0.5)),
+      child: Text(
+        text.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textGray,
+          letterSpacing: 0.5,
+        ),
+      ),
     );
   }
 }
@@ -165,11 +268,13 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
+    final surface = AppTheme.surfaceOf(context);
+    final border = AppTheme.borderOf(context);
+    return Material(
+      color: surface,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        side: BorderSide(color: border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(children: children),

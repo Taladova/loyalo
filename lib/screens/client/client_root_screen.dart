@@ -18,18 +18,18 @@ class _ClientRootScreenState extends State<ClientRootScreen> {
   int _index = 0;
 
   List<Widget> get _screens => [
-        const ClientDashboardScreen(),
-        const RestaurantListScreen(),
-        MyCodeScreen(onBack: () => setState(() => _index = 0)),
-        const RewardsScreen(),
-        const ClientProfileScreen(),
-      ];
+    const ClientDashboardScreen(),
+    const RestaurantListScreen(),
+    MyCodeScreen(onBack: () => setState(() => _index = 0)),
+    const RewardsScreen(),
+    const ClientProfileScreen(),
+  ];
 
   static const _items = [
     NavItemData(icon: Icons.home_outlined, label: 'Accueil'),
-    NavItemData(icon: Icons.restaurant_menu, label: 'Restaurants'),
-    NavItemData(icon: Icons.qr_code_2),
-    NavItemData(icon: Icons.card_giftcard_outlined, label: 'Récompenses'),
+    NavItemData(icon: Icons.explore_outlined, label: 'Découvrir'),
+    NavItemData(icon: Icons.qr_code_scanner),
+    NavItemData(icon: Icons.card_giftcard_outlined, label: 'Avantages'),
     NavItemData(icon: Icons.person_outline, label: 'Profil'),
   ];
 

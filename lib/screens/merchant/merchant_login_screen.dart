@@ -8,6 +8,7 @@ import '../../services/auth_service.dart';
 import '../../services/remember_me_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loyalo_logo.dart';
+import 'merchant_establishment_screen.dart';
 import 'merchant_root_screen.dart';
 import 'merchant_signup_screen.dart';
 
@@ -15,7 +16,8 @@ class MerchantLoginScreen extends ConsumerStatefulWidget {
   const MerchantLoginScreen({super.key});
 
   @override
-  ConsumerState<MerchantLoginScreen> createState() => _MerchantLoginScreenState();
+  ConsumerState<MerchantLoginScreen> createState() =>
+      _MerchantLoginScreenState();
 }
 
 class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
@@ -46,7 +48,9 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     if (email.isEmpty || password.isEmpty) {
-      setState(() => _error = 'Merci de renseigner votre email et votre mot de passe.');
+      setState(
+        () => _error = 'Merci de renseigner votre email et votre mot de passe.',
+      );
       return;
     }
 
@@ -58,13 +62,20 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
     try {
       final user = await _authService.signIn(email: email, password: password);
       final repo = ref.read(loyaltyRepositoryProvider);
-      repo.startListening();
       final restaurantId = await repo.restaurantIdForMerchant(user.uid);
       if (restaurantId == null) {
-        setState(() => _error = 'Aucun restaurant lié à ce compte. Créez d\'abord votre espace commerçant.');
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) =>
+                const MerchantEstablishmentScreen(requireSetup: true),
+          ),
+        );
         return;
       }
-      ref.read(currentMerchantRestaurantIdProvider.notifier).state = restaurantId;
+      repo.startListeningForMerchant(restaurantId);
+      ref.read(currentMerchantRestaurantIdProvider.notifier).state =
+          restaurantId;
       AnalyticsService.logMerchantLogin();
       if (_rememberMe) {
         await _rememberMeService.saveMerchant(email: email, password: password);
@@ -85,13 +96,19 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
   Future<void> _forgotPassword() async {
     final email = _emailController.text.trim();
     if (email.isEmpty) {
-      _showMessage('Mot de passe oublié', 'Renseignez votre email professionnel ci-dessus puis réessayez.');
+      _showMessage(
+        'Mot de passe oublié',
+        'Renseignez votre email professionnel ci-dessus puis réessayez.',
+      );
       return;
     }
     try {
       await _authService.sendPasswordResetEmail(email: email);
       if (!mounted) return;
-      _showMessage('Email envoyé', 'Un lien de réinitialisation a été envoyé à $email.');
+      _showMessage(
+        'Email envoyé',
+        'Un lien de réinitialisation a été envoyé à $email.',
+      );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       _showMessage('Mot de passe oublié', AuthService.readableError(e));
@@ -104,7 +121,12 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
         content: Text(message),
-        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('OK'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
@@ -121,11 +143,15 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Center(child: LoyaloWordmark(markSize: 84, showTagline: false)),
+              const Center(
+                child: LoyaloWordmark(markSize: 84, showTagline: false),
+              ),
               const SizedBox(height: 12),
-              const Text('Connexion commerçant',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+              const Text(
+                'Connexion commerçant',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 28),
               TextField(
                 controller: _emailController,
@@ -146,18 +172,30 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
                 contentPadding: EdgeInsets.zero,
                 dense: true,
                 activeColor: AppColors.teal,
-                title: const Text('Se souvenir de moi', style: TextStyle(fontSize: 13)),
+                title: const Text(
+                  'Se souvenir de moi',
+                  style: TextStyle(fontSize: 13),
+                ),
               ),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: _forgotPassword,
-                  child: const Text('Mot de passe oublié ?', style: TextStyle(color: AppColors.textGray)),
+                  child: const Text(
+                    'Mot de passe oublié ?',
+                    style: TextStyle(color: AppColors.textGray),
+                  ),
                 ),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 4),
-                Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12.5)),
+                Text(
+                  _error!,
+                  style: const TextStyle(
+                    color: AppColors.danger,
+                    fontSize: 12.5,
+                  ),
+                ),
               ],
               const SizedBox(height: 10),
               ElevatedButton(
@@ -166,14 +204,19 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
                     ? const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          color: Colors.white,
+                        ),
                       )
                     : const Text('Se connecter'),
               ),
               const SizedBox(height: 14),
               TextButton(
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const MerchantSignupScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const MerchantSignupScreen(),
+                  ),
                 ),
                 child: const Text('Créer un compte'),
               ),

@@ -17,18 +17,31 @@ class _ConfettiPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     for (final piece in pieces) {
       final dy = size.height * ((piece.startY + progress * piece.speed) % 1.1);
-      final dx = size.width * piece.startX + sin((progress * 6 + piece.phase) * pi) * 14;
+      final dx =
+          size.width * piece.startX +
+          sin((progress * 6 + piece.phase) * pi) * 14;
       canvas.save();
       canvas.translate(dx, dy);
       canvas.rotate(progress * piece.rotationSpeed * pi * 2);
-      final paint = Paint()..color = piece.color.withValues(alpha: (1 - progress * 0.3).clamp(0.0, 1.0));
-      canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: piece.size, height: piece.size * 0.5), paint);
+      final paint = Paint()
+        ..color = piece.color.withValues(
+          alpha: (1 - progress * 0.3).clamp(0.0, 1.0),
+        );
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset.zero,
+          width: piece.size,
+          height: piece.size * 0.5,
+        ),
+        paint,
+      );
       canvas.restore();
     }
   }
 
   @override
-  bool shouldRepaint(covariant _ConfettiPainter oldDelegate) => oldDelegate.progress != progress;
+  bool shouldRepaint(covariant _ConfettiPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 class _ConfettiPiece {
@@ -51,7 +64,12 @@ class _ConfettiPiece {
   });
 
   factory _ConfettiPiece.random(Random rnd) {
-    const colors = [AppColors.teal, AppColors.blue, AppColors.purple, AppColors.orange];
+    const colors = [
+      AppColors.teal,
+      AppColors.blue,
+      AppColors.purple,
+      AppColors.orange,
+    ];
     return _ConfettiPiece(
       startX: rnd.nextDouble(),
       startY: -0.2 - rnd.nextDouble() * 0.6,
@@ -68,13 +86,17 @@ class _RewardUnlockedContent extends StatefulWidget {
   final String rewardLabel;
   final String restaurantName;
 
-  const _RewardUnlockedContent({required this.rewardLabel, required this.restaurantName});
+  const _RewardUnlockedContent({
+    required this.rewardLabel,
+    required this.restaurantName,
+  });
 
   @override
   State<_RewardUnlockedContent> createState() => _RewardUnlockedContentState();
 }
 
-class _RewardUnlockedContentState extends State<_RewardUnlockedContent> with SingleTickerProviderStateMixin {
+class _RewardUnlockedContentState extends State<_RewardUnlockedContent>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final List<_ConfettiPiece> _pieces;
 
@@ -83,7 +105,10 @@ class _RewardUnlockedContentState extends State<_RewardUnlockedContent> with Sin
     super.initState();
     final rnd = Random();
     _pieces = List.generate(28, (_) => _ConfettiPiece.random(rnd));
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 3))..repeat();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat();
   }
 
   @override
@@ -94,6 +119,9 @@ class _RewardUnlockedContentState extends State<_RewardUnlockedContent> with Sin
 
   @override
   Widget build(BuildContext context) {
+    final surface = AppTheme.surfaceOf(context);
+    final muted = AppTheme.mutedOf(context);
+
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 28),
@@ -106,13 +134,21 @@ class _RewardUnlockedContentState extends State<_RewardUnlockedContent> with Sin
               animation: _controller,
               builder: (context, _) => ClipRRect(
                 borderRadius: BorderRadius.circular(24),
-                child: CustomPaint(painter: _ConfettiPainter(progress: _controller.value, pieces: _pieces)),
+                child: CustomPaint(
+                  painter: _ConfettiPainter(
+                    progress: _controller.value,
+                    pieces: _pieces,
+                  ),
+                ),
               ),
             ),
           ),
           Container(
             padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(24),
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -120,28 +156,40 @@ class _RewardUnlockedContentState extends State<_RewardUnlockedContent> with Sin
                   tween: Tween(begin: 0, end: 1),
                   duration: const Duration(milliseconds: 550),
                   curve: Curves.elasticOut,
-                  builder: (context, value, child) => Transform.scale(scale: value, child: child),
+                  builder: (context, value, child) =>
+                      Transform.scale(scale: value, child: child),
                   child: Container(
                     width: 84,
                     height: 84,
-                    decoration: const BoxDecoration(gradient: AppColors.brandGradient, shape: BoxShape.circle),
-                    child: const Icon(Icons.card_giftcard, color: Colors.white, size: 38),
+                    decoration: const BoxDecoration(
+                      gradient: AppColors.brandGradient,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.card_giftcard,
+                      color: Colors.white,
+                      size: 38,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 20),
-                const Text('Récompense débloquée !',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                const Text(
+                  'Récompense débloquée !',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 8),
                 Text(
                   '${widget.rewardLabel}\nchez ${widget.restaurantName}',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 13.5, color: AppColors.textGray, height: 1.4),
+                  style: TextStyle(fontSize: 13.5, color: muted, height: 1.4),
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
                   child: const Text('Super !'),
                 ),
               ],
@@ -164,8 +212,10 @@ Future<void> showRewardUnlockedDialog(
     barrierLabel: 'Récompense débloquée',
     barrierColor: Colors.black.withValues(alpha: 0.5),
     transitionDuration: const Duration(milliseconds: 300),
-    pageBuilder: (context, _, _) =>
-        _RewardUnlockedContent(rewardLabel: rewardLabel, restaurantName: restaurantName),
+    pageBuilder: (context, _, _) => _RewardUnlockedContent(
+      rewardLabel: rewardLabel,
+      restaurantName: restaurantName,
+    ),
     transitionBuilder: (context, animation, _, child) => ScaleTransition(
       scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
       child: FadeTransition(opacity: animation, child: child),

@@ -9,26 +9,33 @@ class OnboardingPageData {
   final String title;
   final String description;
 
-  const OnboardingPageData({required this.icon, required this.title, required this.description});
+  const OnboardingPageData({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
 }
 
 const _clientPages = [
   OnboardingPageData(
     icon: Icons.storefront_outlined,
     title: 'Découvrez vos commerces préférés',
-    description: 'Retrouvez les restaurants et commerces partenaires autour de vous, et suivez votre progression '
+    description:
+        'Retrouvez les restaurants et commerces partenaires autour de vous, et suivez votre progression '
         'vers votre prochaine récompense.',
   ),
   OnboardingPageData(
     icon: Icons.pin_outlined,
     title: 'Un code, à chaque visite',
-    description: 'Présentez votre code personnel à 6 chiffres au commerçant — il se renouvelle régulièrement pour '
+    description:
+        'Présentez votre code personnel à 6 chiffres au commerçant — il se renouvelle régulièrement pour '
         'éviter toute fraude.',
   ),
   OnboardingPageData(
     icon: Icons.card_giftcard,
     title: 'Débloquez des récompenses',
-    description: 'Cumulez vos visites et recevez automatiquement vos récompenses fidélité, sans carte en papier.',
+    description:
+        'Cumulez vos visites et recevez automatiquement vos récompenses fidélité, sans carte en papier.',
   ),
 ];
 
@@ -56,7 +63,12 @@ class OnboardingFlow extends StatefulWidget {
   final String prefsKey;
   final Widget destination;
 
-  const OnboardingFlow({super.key, required this.pages, required this.prefsKey, required this.destination});
+  const OnboardingFlow({
+    super.key,
+    required this.pages,
+    required this.prefsKey,
+    required this.destination,
+  });
 
   @override
   State<OnboardingFlow> createState() => _OnboardingFlowState();
@@ -70,7 +82,9 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(widget.prefsKey, true);
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => widget.destination));
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => widget.destination));
   }
 
   void _next() {
@@ -78,7 +92,10 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
       _finish();
       return;
     }
-    _pageController.nextPage(duration: const Duration(milliseconds: 320), curve: Curves.easeOut);
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOut,
+    );
   }
 
   @override
@@ -95,7 +112,10 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
                 padding: const EdgeInsets.only(right: 12, top: 4),
                 child: TextButton(
                   onPressed: _finish,
-                  child: const Text('Passer', style: TextStyle(color: AppColors.textGray)),
+                  child: const Text(
+                    'Passer',
+                    style: TextStyle(color: AppColors.textGray),
+                  ),
                 ),
               ),
             ),
@@ -114,20 +134,31 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
                         Container(
                           width: 108,
                           height: 108,
-                          decoration: const BoxDecoration(gradient: AppColors.brandGradient, shape: BoxShape.circle),
+                          decoration: const BoxDecoration(
+                            gradient: AppColors.brandGradient,
+                            shape: BoxShape.circle,
+                          ),
                           child: Icon(page.icon, color: Colors.white, size: 48),
                         ),
                         const SizedBox(height: 32),
                         Text(
                           page.title,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.textDark),
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textDark,
+                          ),
                         ),
                         const SizedBox(height: 12),
                         Text(
                           page.description,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 14, color: AppColors.textGray, height: 1.5),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textGray,
+                            height: 1.5,
+                          ),
                         ),
                       ],
                     ),
@@ -155,7 +186,9 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
               padding: const EdgeInsets.fromLTRB(28, 24, 28, 20),
               child: ElevatedButton(
                 onPressed: _next,
-                style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                ),
                 child: Text(isLast ? 'Commencer' : 'Suivant'),
               ),
             ),

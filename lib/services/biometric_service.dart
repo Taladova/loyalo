@@ -31,7 +31,10 @@ class BiometricService {
     try {
       return await _auth.authenticate(
         localizedReason: 'Déverrouillez Loyalo pour accéder à votre compte',
-        options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
+        options: const AuthenticationOptions(
+          biometricOnly: false,
+          stickyAuth: true,
+        ),
       );
     } catch (_) {
       return false;

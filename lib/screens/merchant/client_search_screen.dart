@@ -41,23 +41,43 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
               separatorBuilder: (_, _) => const SizedBox(height: 8),
               itemBuilder: (context, i) {
                 final c = results[i];
-                return Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
+                return Material(
+                  color: AppTheme.surfaceOf(context),
+                  shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.border),
+                    side: BorderSide(color: AppTheme.borderOf(context)),
                   ),
+                  clipBehavior: Clip.antiAlias,
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: AppColors.lavender.withValues(alpha: 0.5),
-                      child: Text(c.name.isNotEmpty ? c.name[0] : '?',
-                          style: const TextStyle(color: AppColors.purple, fontWeight: FontWeight.w700)),
+                      backgroundColor: AppColors.lavender.withValues(
+                        alpha: 0.5,
+                      ),
+                      child: Text(
+                        c.name.isNotEmpty ? c.name[0] : '?',
+                        style: const TextStyle(
+                          color: AppColors.purple,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
-                    title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text(c.email, style: const TextStyle(fontSize: 12)),
-                    trailing: const Icon(Icons.chevron_right, color: AppColors.textGray),
+                    title: Text(
+                      c.name,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(
+                      c.email,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    trailing: const Icon(
+                      Icons.chevron_right,
+                      color: AppColors.textGray,
+                    ),
                     onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => MerchantClientProfileScreen(clientId: c.id)),
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            MerchantClientProfileScreen(clientId: c.id),
+                      ),
                     ),
                   ),
                 );

@@ -11,6 +11,8 @@ import 'screens/client/my_code_screen.dart';
 import 'services/analytics_service.dart';
 import 'theme/app_theme.dart';
 
+final loyaloNavigatorKey = GlobalKey<NavigatorState>();
+
 class LoyaloApp extends ConsumerStatefulWidget {
   const LoyaloApp({super.key});
 
@@ -19,7 +21,6 @@ class LoyaloApp extends ConsumerStatefulWidget {
 }
 
 class _LoyaloAppState extends ConsumerState<LoyaloApp> {
-  final _navigatorKey = GlobalKey<NavigatorState>();
   final _quickActions = QuickActions();
 
   @override
@@ -34,7 +35,11 @@ class _LoyaloAppState extends ConsumerState<LoyaloApp> {
         if (type == 'show_code') _openMyCode();
       });
       _quickActions.setShortcutItems(const [
-        ShortcutItem(type: 'show_code', localizedTitle: 'Mon code', icon: 'ic_shortcut_code'),
+        ShortcutItem(
+          type: 'show_code',
+          localizedTitle: 'Mon code',
+          icon: 'ic_shortcut_code',
+        ),
       ]);
     }
   }
@@ -44,7 +49,9 @@ class _LoyaloAppState extends ConsumerState<LoyaloApp> {
     // résoudre dans AuthGateScreen : on patiente un peu avant d'abandonner.
     for (var i = 0; i < 10; i++) {
       if (ref.read(currentUserProvider) != null) {
-        _navigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const MyCodeScreen()));
+        loyaloNavigatorKey.currentState?.push(
+          MaterialPageRoute(builder: (_) => const MyCodeScreen()),
+        );
         return;
       }
       await Future.delayed(const Duration(milliseconds: 300));
@@ -54,10 +61,12 @@ class _LoyaloAppState extends ConsumerState<LoyaloApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: _navigatorKey,
+      navigatorKey: loyaloNavigatorKey,
       title: 'Loyalo',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system,
       navigatorObservers: [AnalyticsService.observer],
       // Sur navigateur desktop, l'app s'étire sur toute la largeur de la
       // fenêtre (boutons énormes, mise en page qui n'a plus de sens) : on
@@ -88,17 +97,15 @@ class _MobileFrame extends StatelessWidget {
         final frameHeight = math.min(constraints.maxHeight - 48, 926.0);
 
         return Container(
-          color: AppColors.navy,
+          color: Theme.of(context).brightness == Brightness.dark
+              ? Colors.black
+              : AppColors.navy,
           alignment: Alignment.center,
           child: Stack(
             alignment: Alignment.center,
             clipBehavior: Clip.none,
             children: [
-              Positioned(
-                left: -140,
-                top: -160,
-                child: _glow(AppColors.teal),
-              ),
+              Positioned(left: -140, top: -160, child: _glow(AppColors.teal)),
               Positioned(
                 right: -140,
                 bottom: -160,
@@ -111,7 +118,11 @@ class _MobileFrame extends StatelessWidget {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(32),
                     boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.45), blurRadius: 60, spreadRadius: -6),
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        blurRadius: 60,
+                        spreadRadius: -6,
+                      ),
                     ],
                   ),
                   child: ClipRRect(
@@ -133,7 +144,9 @@ class _MobileFrame extends StatelessWidget {
       height: 340,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: RadialGradient(colors: [color.withValues(alpha: 0.35), color.withValues(alpha: 0)]),
+        gradient: RadialGradient(
+          colors: [color.withValues(alpha: 0.35), color.withValues(alpha: 0)],
+        ),
       ),
     );
   }

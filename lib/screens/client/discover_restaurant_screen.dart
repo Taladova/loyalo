@@ -8,6 +8,7 @@ import '../../models/wishlist_place.dart';
 import '../../providers/app_providers.dart';
 import '../../services/places_search_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/loyalo_ui.dart';
 
 /// Recherche de vrais restaurants (via OpenStreetMap) à ajouter à sa liste
 /// personnelle "Envie d'y aller" — distincte des restaurants partenaires
@@ -16,10 +17,12 @@ class DiscoverRestaurantScreen extends ConsumerStatefulWidget {
   const DiscoverRestaurantScreen({super.key});
 
   @override
-  ConsumerState<DiscoverRestaurantScreen> createState() => _DiscoverRestaurantScreenState();
+  ConsumerState<DiscoverRestaurantScreen> createState() =>
+      _DiscoverRestaurantScreenState();
 }
 
-class _DiscoverRestaurantScreenState extends ConsumerState<DiscoverRestaurantScreen> {
+class _DiscoverRestaurantScreenState
+    extends ConsumerState<DiscoverRestaurantScreen> {
   final _searchService = PlacesSearchService();
   final _controller = TextEditingController();
   Timer? _debounce;
@@ -74,9 +77,12 @@ class _DiscoverRestaurantScreenState extends ConsumerState<DiscoverRestaurantScr
       address: place.address,
       latitude: place.latitude,
       longitude: place.longitude,
+      imageUrl: place.imageUrl,
       addedAt: DateTime.now(),
     );
-    await FirebaseFirestore.instance.collection('wishlist').add(wishlistPlace.toMap());
+    await FirebaseFirestore.instance
+        .collection('wishlist')
+        .add(wishlistPlace.toMap());
     if (!mounted) return;
     setState(() => _adding.remove(place.name + place.address));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -87,7 +93,7 @@ class _DiscoverRestaurantScreenState extends ConsumerState<DiscoverRestaurantScr
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Découvrir un restaurant')),
+      appBar: AppBar(title: const Text('Recherche externe')),
       body: Column(
         children: [
           Padding(
@@ -102,20 +108,31 @@ class _DiscoverRestaurantScreenState extends ConsumerState<DiscoverRestaurantScr
               onChanged: _onChanged,
             ),
           ),
-          if (!_loading && _controller.text.trim().isNotEmpty && _controller.text.trim().length < 3)
+          if (!_loading &&
+              _controller.text.trim().isNotEmpty &&
+              _controller.text.trim().length < 3)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('Continuez à taper (3 caractères minimum)',
-                    style: TextStyle(fontSize: 12, color: AppColors.textGray)),
+                child: Text(
+                  'Continuez à taper (3 caractères minimum)',
+                  style: TextStyle(fontSize: 12, color: AppColors.textGray),
+                ),
               ),
             ),
-          if (_loading) const Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: CircularProgressIndicator(),
+            ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.all(20),
-              child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: AppColors.danger),
+              ),
             ),
           Expanded(
             child: ListView.separated(
@@ -128,32 +145,62 @@ class _DiscoverRestaurantScreenState extends ConsumerState<DiscoverRestaurantScr
                 return Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppTheme.surfaceOf(context),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.border),
+                    border: Border.all(color: AppTheme.borderOf(context)),
                   ),
                   child: Row(
                     children: [
-                      Container(
+                      LoyaloNetworkImage(
+                        url: place.imageUrl,
+                        fallbackIcon: Icons.storefront_outlined,
                         width: 42,
                         height: 42,
-                        decoration: BoxDecoration(
-                          gradient: AppColors.brandGradient,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.storefront_outlined, color: Colors.white, size: 20),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(place.name, style: const TextStyle(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            Text(
+                              place.name,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.textOf(context),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             const SizedBox(height: 2),
-                            Text(place.address,
-                                style: const TextStyle(fontSize: 11.5, color: AppColors.textGray),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis),
+                            Text(
+                              place.address,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: AppTheme.mutedOf(context),
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.purple.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Text(
+                                'Hors programme Loyalo',
+                                style: TextStyle(
+                                  color: AppColors.purple,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -162,11 +209,16 @@ class _DiscoverRestaurantScreenState extends ConsumerState<DiscoverRestaurantScr
                           ? const SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2.2),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                              ),
                             )
                           : IconButton(
                               onPressed: () => _add(place),
-                              icon: const Icon(Icons.add_circle, color: AppColors.purple),
+                              icon: const Icon(
+                                Icons.add_circle,
+                                color: AppColors.purple,
+                              ),
                               tooltip: 'Ajouter à ma liste',
                             ),
                     ],
