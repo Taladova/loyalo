@@ -90,7 +90,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               try {
                 await repo.deleteClientProfile(uid);
                 await AuthService().deleteAccount();
-                repo.stopListening();
+                await repo.stopListening();
                 if (!mounted) return;
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const WelcomeScreen()),

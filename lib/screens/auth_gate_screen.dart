@@ -68,7 +68,7 @@ class _AuthGateScreenState extends ConsumerState<AuthGateScreen> {
       // (réseau, permissions, session invalide, timeout...).
       debugPrint('AuthGateScreen: échec de la reprise de session -> $e\n$st');
       try {
-        ref.read(loyaltyRepositoryProvider).stopListening();
+        await ref.read(loyaltyRepositoryProvider).stopListening();
         await AuthService().signOut();
       } catch (_) {
         // best effort
@@ -92,7 +92,7 @@ class _AuthGateScreenState extends ConsumerState<AuthGateScreen> {
     final repo = ref.read(loyaltyRepositoryProvider);
     final restaurantId = await repo.restaurantIdForMerchant(firebaseUser.uid);
     if (restaurantId != null) {
-      repo.startListeningForMerchant(restaurantId);
+      repo.startListeningForMerchant(restaurantId, ownerUid: firebaseUser.uid);
       _startNotifications(firebaseUser.uid, merchant: true);
       ref.read(currentMerchantRestaurantIdProvider.notifier).state =
           restaurantId;

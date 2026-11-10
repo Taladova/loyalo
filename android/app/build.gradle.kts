@@ -37,6 +37,20 @@ android {
         versionName = flutter.versionName
     }
 
+    flavorDimensions += "environment"
+    productFlavors {
+        create("production") {
+            dimension = "environment"
+            applicationId = "com.loyalo.loyalo"
+            resValue("string", "app_name", "Loyalo")
+        }
+        create("pilot") {
+            dimension = "environment"
+            applicationId = "com.loyalo.loyalo.pilot"
+            resValue("string", "app_name", "Loyalo Pilot")
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

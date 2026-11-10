@@ -42,7 +42,7 @@ class _MerchantDashboardScreenState
   _DashboardPeriod _period = _DashboardPeriod.today;
 
   Future<void> _logout(BuildContext context, WidgetRef ref) async {
-    ref.read(loyaltyRepositoryProvider).stopListening();
+    await ref.read(loyaltyRepositoryProvider).stopListening();
     await AuthService().signOut();
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
@@ -541,27 +541,44 @@ class _PendingCheckInsSectionState
 
   Future<void> _approve(String checkInId) async {
     setState(() => _processing.add(checkInId));
-    final merchantId = AuthService().currentUser?.uid ?? 'merchant';
-    final result = await ref
-        .read(loyaltyRepositoryProvider)
-        .approveCheckIn(checkInId: checkInId, merchantId: merchantId);
+    CheckInValidationResult? result;
+    String? errorMessage;
+    try {
+      final merchantId = AuthService().currentUser?.uid;
+      if (merchantId == null) {
+        errorMessage = 'Session expirée. Reconnectez-vous pour continuer.';
+      } else {
+        result = await ref
+            .read(loyaltyRepositoryProvider)
+            .approveCheckIn(checkInId: checkInId, merchantId: merchantId);
+      }
+    } catch (error) {
+      debugPrint('Validation du check-in impossible: $error');
+      errorMessage = 'Validation impossible. Réessayez dans un instant.';
+    } finally {
+      if (mounted) setState(() => _processing.remove(checkInId));
+    }
     if (!mounted) return;
-    setState(() => _processing.remove(checkInId));
 
-    final message = switch (result.outcome) {
-      CheckInValidationOutcome.validated =>
-        'Visite validée · +${result.pointsAwarded} pts',
-      CheckInValidationOutcome.rewardUnlocked =>
-        'Visite validée · récompense débloquée',
-      CheckInValidationOutcome.rejected => 'Demande refusée.',
-      CheckInValidationOutcome.alreadyValidated =>
-        'Ce client a déjà une visite récente.',
-      CheckInValidationOutcome.expired => 'Cette arrivée a expiré.',
-      CheckInValidationOutcome.notPending => 'Cette arrivée est déjà traitée.',
-      CheckInValidationOutcome.notFound => 'Arrivée introuvable.',
-      CheckInValidationOutcome.unauthorized =>
-        'Vous ne pouvez pas valider cette arrivée.',
-    };
+    final message =
+        errorMessage ??
+        switch (result!.outcome) {
+          CheckInValidationOutcome.validated =>
+            result.synced
+                ? 'Visite validée · +${result.pointsAwarded} pts'
+                : 'Validation enregistrée. Synchronisation en attente.',
+          CheckInValidationOutcome.rewardUnlocked =>
+            'Visite validée · récompense débloquée',
+          CheckInValidationOutcome.rejected => 'Demande refusée.',
+          CheckInValidationOutcome.alreadyValidated =>
+            'Ce client a déjà une visite récente.',
+          CheckInValidationOutcome.expired => 'Cette arrivée a expiré.',
+          CheckInValidationOutcome.notPending =>
+            'Cette arrivée est déjà traitée.',
+          CheckInValidationOutcome.notFound => 'Arrivée introuvable.',
+          CheckInValidationOutcome.unauthorized =>
+            'Vous ne pouvez pas valider cette arrivée.',
+        };
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
@@ -569,24 +586,42 @@ class _PendingCheckInsSectionState
 
   Future<void> _reject(String checkInId) async {
     setState(() => _processing.add(checkInId));
-    final merchantId = AuthService().currentUser?.uid ?? 'merchant';
-    final result = await ref
-        .read(loyaltyRepositoryProvider)
-        .rejectCheckIn(checkInId: checkInId, merchantId: merchantId);
+    CheckInValidationResult? result;
+    String? errorMessage;
+    try {
+      final merchantId = AuthService().currentUser?.uid;
+      if (merchantId == null) {
+        errorMessage = 'Session expirée. Reconnectez-vous pour continuer.';
+      } else {
+        result = await ref
+            .read(loyaltyRepositoryProvider)
+            .rejectCheckIn(checkInId: checkInId, merchantId: merchantId);
+      }
+    } catch (error) {
+      debugPrint('Refus du check-in impossible: $error');
+      errorMessage = 'Refus impossible. Réessayez dans un instant.';
+    } finally {
+      if (mounted) setState(() => _processing.remove(checkInId));
+    }
     if (!mounted) return;
-    setState(() => _processing.remove(checkInId));
 
-    final message = switch (result.outcome) {
-      CheckInValidationOutcome.rejected => 'Demande refusée.',
-      CheckInValidationOutcome.expired => 'Cette arrivée a expiré.',
-      CheckInValidationOutcome.notPending => 'Cette arrivée est déjà traitée.',
-      CheckInValidationOutcome.notFound => 'Arrivée introuvable.',
-      CheckInValidationOutcome.unauthorized =>
-        'Vous ne pouvez pas refuser cette arrivée.',
-      CheckInValidationOutcome.validated ||
-      CheckInValidationOutcome.rewardUnlocked ||
-      CheckInValidationOutcome.alreadyValidated => 'Demande déjà traitée.',
-    };
+    final message =
+        errorMessage ??
+        switch (result!.outcome) {
+          CheckInValidationOutcome.rejected =>
+            result.synced
+                ? 'Demande refusée.'
+                : 'Refus enregistré. Synchronisation en attente.',
+          CheckInValidationOutcome.expired => 'Cette arrivée a expiré.',
+          CheckInValidationOutcome.notPending =>
+            'Cette arrivée est déjà traitée.',
+          CheckInValidationOutcome.notFound => 'Arrivée introuvable.',
+          CheckInValidationOutcome.unauthorized =>
+            'Vous ne pouvez pas refuser cette arrivée.',
+          CheckInValidationOutcome.validated ||
+          CheckInValidationOutcome.rewardUnlocked ||
+          CheckInValidationOutcome.alreadyValidated => 'Demande déjà traitée.',
+        };
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
@@ -599,13 +634,16 @@ class _PendingCheckInsSectionState
     final muted = AppTheme.mutedOf(context);
 
     return StreamBuilder<List<CheckInRequest>>(
-      stream: repo.watchPendingCheckInsForRestaurant(widget.restaurantId),
+      stream: repo.watchMerchantValidationQueue(
+        widget.restaurantId,
+        ownerUid: AuthService().currentUser?.uid,
+      ),
       builder: (context, snapshot) {
         final pending = snapshot.data ?? const <CheckInRequest>[];
         return _PendingCheckInsCard(
           restaurantId: widget.restaurantId,
           pending: pending,
-          hasError: snapshot.hasError,
+          hasError: snapshot.hasError || repo.checkInsLoadError != null,
           processing: _processing,
           onApprove: _approve,
           onReject: _reject,
@@ -643,6 +681,9 @@ class _PendingCheckInsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final awaitingValidation = pending
+        .where((request) => request.status == CheckInStatus.pending)
+        .length;
     return LoyaloCard(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -673,13 +714,15 @@ class _PendingCheckInsCard extends StatelessWidget {
                           ? 'Lecture impossible, réessayez plus tard'
                           : pending.isEmpty
                           ? 'Aucun client en attente'
-                          : '${pending.length} client${pending.length > 1 ? 's' : ''} attend${pending.length > 1 ? 'ent' : ''} votre validation',
+                          : awaitingValidation > 0
+                          ? '$awaitingValidation client${awaitingValidation > 1 ? 's' : ''} attend${awaitingValidation > 1 ? 'ent' : ''} votre validation'
+                          : 'Validation hors ligne à finaliser',
                       style: TextStyle(color: muted, fontSize: 12),
                     ),
                   ],
                 ),
               ),
-              if (pending.isNotEmpty)
+              if (awaitingValidation > 0)
                 TextButton(
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute(
@@ -693,6 +736,8 @@ class _PendingCheckInsCard extends StatelessWidget {
           if (pending.isNotEmpty) ...[
             const SizedBox(height: 14),
             ...pending.take(4).map((request) {
+              final canAct = request.status == CheckInStatus.pending;
+              final isExpired = request.status == CheckInStatus.expired;
               final clientName = repo.nameForClient(request.customerId);
               final count = repo.passageCount(request.customerId, restaurantId);
               final restaurant = repo.restaurantById(restaurantId);
@@ -702,9 +747,18 @@ class _PendingCheckInsCard extends StatelessWidget {
               final arrivedAgo = DateTime.now()
                   .difference(request.requestedAt)
                   .inMinutes;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
+                decoration: BoxDecoration(
+                  color: AppColors.purple.withValues(alpha: 0.045),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: AppColors.purple.withValues(alpha: 0.10),
+                  ),
+                ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     CircleAvatar(
                       radius: 18,
@@ -733,69 +787,98 @@ class _PendingCheckInsCard extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            remaining == 1
+                            !canAct
+                                ? isExpired
+                                      ? 'Arrivée expirée · points non attribués'
+                                      : request.status == CheckInStatus.rejected
+                                      ? 'Refus en attente de synchronisation'
+                                      : 'Validation en attente de synchronisation'
+                                : remaining == 1
                                 ? '$count/${restaurant.rewardThreshold} · proche d\'une récompense'
                                 : '$count/${restaurant.rewardThreshold} visites · arrivé il y a ${arrivedAgo.clamp(0, 10)} min',
-                            style: TextStyle(color: muted, fontSize: 11),
-                          ),
-                          Text(
-                            _loyaltyBadgeFor(count),
-                            style: const TextStyle(
-                              color: AppColors.teal,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
+                            style: TextStyle(
+                              color: isExpired ? AppColors.orange : muted,
+                              fontSize: 11,
+                              fontWeight: !canAct
+                                  ? FontWeight.w700
+                                  : FontWeight.normal,
                             ),
                           ),
+                          if (canAct)
+                            Text(
+                              _loyaltyBadgeFor(count),
+                              style: const TextStyle(
+                                color: AppColors.teal,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                         ],
                       ),
                     ),
-                    Column(
-                      children: [
-                        SizedBox(
-                          height: 38,
-                          child: TextButton(
-                            onPressed: processing.contains(request.id)
-                                ? null
-                                : () => onApprove(request.id),
-                            style: TextButton.styleFrom(
-                              backgroundColor: AppColors.purple,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(999),
+                    const SizedBox(width: 8),
+                    if (canAct)
+                      SizedBox(
+                        width: 82,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SizedBox(
+                              height: 36,
+                              child: FilledButton.icon(
+                                onPressed: processing.contains(request.id)
+                                    ? null
+                                    : () => onApprove(request.id),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.purple,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                icon: processing.contains(request.id)
+                                    ? const SizedBox.shrink()
+                                    : const Icon(Icons.check, size: 15),
+                                label: processing.contains(request.id)
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Text(
+                                        'Valider',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
                               ),
                             ),
-                            child: processing.contains(request.id)
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text(
-                                    'Valider',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                          ),
+                            SizedBox(
+                              height: 30,
+                              child: TextButton(
+                                onPressed: processing.contains(request.id)
+                                    ? null
+                                    : () => onReject(request.id),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: muted,
+                                  padding: EdgeInsets.zero,
+                                ),
+                                child: const Text(
+                                  'Refuser',
+                                  style: TextStyle(fontSize: 11),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        TextButton(
-                          onPressed: processing.contains(request.id)
-                              ? null
-                              : () => onReject(request.id),
-                          child: const Text(
-                            'Refuser',
-                            style: TextStyle(fontSize: 11),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
                   ],
                 ),
               );

@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "demo-loyalo-v2",
+    "emulator": "demo-loyalo-v2",
+    "pilot": "loyalo-pilot",
+    "production": "loyalo-app"
+  }
+}

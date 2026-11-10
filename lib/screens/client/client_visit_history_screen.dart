@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/database/tables/local_visits.dart';
 import '../../providers/app_providers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loyalo_ui.dart';
@@ -35,6 +36,8 @@ class ClientVisitHistoryScreen extends ConsumerWidget {
                 final restaurant = repo.restaurantByIdOrNull(
                   visit.restaurantId,
                 );
+                final syncStatus = repo.visitSyncStatus(visit.id);
+                final confirmed = syncStatus == LocalVisitSyncStatus.synced;
                 return LoyaloCard(
                   padding: const EdgeInsets.all(14),
                   child: Row(
@@ -70,11 +73,16 @@ class ClientVisitHistoryScreen extends ConsumerWidget {
                         ),
                       ),
                       Text(
-                        '+${restaurant?.pointsPerVisit ?? 0} pts',
-                        style: const TextStyle(
-                          color: AppColors.teal,
+                        confirmed
+                            ? '+${restaurant?.pointsPerVisit ?? 0} pts'
+                            : syncStatus == LocalVisitSyncStatus.failed
+                            ? 'Non confirmée\n0 pt'
+                            : 'En attente\nde synchro',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          color: confirmed ? AppColors.teal : muted,
                           fontWeight: FontWeight.w800,
-                          fontSize: 13,
+                          fontSize: 11.5,
                         ),
                       ),
                     ],

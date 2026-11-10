@@ -27,6 +27,10 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
+    function hasOnlyFields(keys) {
+      return request.resource.data.keys().hasOnly(keys);
+    }
+
     function merchantCanAccessUser(userId) {
       return isMerchant() &&
         exists(/databases/$(database)/documents/restaurantCustomers/$(merchantRestaurantId() + '_' + userId));
@@ -56,8 +60,16 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isSelf(userId) || merchantCanAccessUser(userId);
       allow list: if false;
-      allow create: if isSelf(userId);
-      allow update: if isSelf(userId);
+      allow create: if isSelf(userId) &&
+        hasOnlyFields([
+          'name', 'email', 'phone', 'referralCode', 'createdAt',
+          'notificationPreferences', 'updatedAt'
+        ]) &&
+        request.resource.data.name is string &&
+        request.resource.data.email is string &&
+        request.resource.data.referralCode is string;
+      allow update: if isSelf(userId) &&
+        changedOnly(['name', 'email', 'phone', 'notificationPreferences', 'updatedAt']);
       allow delete: if isSelf(userId);
 
       match /devices/{deviceId} {
@@ -68,18 +80,26 @@ service cloud.firestore {
     match /referralCodes/{code} {
       allow get: if isSignedIn();
       allow list: if false;
-      allow create: if isSelf(request.resource.data.userId);
+      allow create: if isSelf(request.resource.data.userId) &&
+        hasOnlyFields(['userId', 'updatedAt']);
       allow update: if isSelf(resource.data.userId) &&
-        request.resource.data.userId == resource.data.userId;
+        request.resource.data.userId == resource.data.userId &&
+        changedOnly(['updatedAt']);
       allow delete: if false;
     }
 
     match /validationCodes/{code} {
       allow get: if isMerchant() || isSelf(resource.data.userId);
       allow list: if false;
-      allow create: if isSelf(request.resource.data.userId);
+      allow create: if isSelf(request.resource.data.userId) &&
+        hasOnlyFields(['userId', 'dateKey', 'expiresAt', 'updatedAt']) &&
+        request.resource.data.dateKey is string &&
+        request.resource.data.expiresAt is timestamp;
       allow update: if isSelf(resource.data.userId) &&
-        request.resource.data.userId == resource.data.userId;
+        request.resource.data.userId == resource.data.userId &&
+        changedOnly(['dateKey', 'expiresAt', 'updatedAt']) &&
+        request.resource.data.dateKey is string &&
+        request.resource.data.expiresAt is timestamp;
       allow delete: if false;
     }
 
@@ -104,14 +124,16 @@ service cloud.firestore {
           isMerchantForRestaurant(request.resource.data.restaurantId)
         ) &&
         get(/databases/$(database)/documents/restaurants/$(request.resource.data.restaurantId)).data.active == true &&
-        id == request.resource.data.restaurantId + '_' + request.resource.data.userId;
+        id == request.resource.data.restaurantId + '_' + request.resource.data.userId &&
+        hasOnlyFields(['restaurantId', 'userId', 'updatedAt']);
       allow update: if isSignedIn() &&
         request.resource.data.restaurantId == resource.data.restaurantId &&
         request.resource.data.userId == resource.data.userId &&
         (
           resource.data.userId == request.auth.uid ||
           isMerchantForRestaurant(resource.data.restaurantId)
-        );
+        ) &&
+        changedOnly(['updatedAt']);
       allow delete: if false;
     }
 
@@ -137,7 +159,12 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         isMerchantForRestaurant(request.resource.data.restaurantId) &&
         request.resource.data.userId is string &&
-        request.resource.data.timestamp is timestamp;
+        request.resource.data.timestamp is timestamp &&
+        request.resource.data.checkInId is string &&
+        request.resource.data.operationId == 'approveCheckIn:' + request.resource.data.checkInId &&
+        getAfter(/databases/$(database)/documents/checkIns/$(request.resource.data.checkInId)).data.status == 'approved' &&
+        getAfter(/databases/$(database)/documents/checkIns/$(request.resource.data.checkInId)).data.visitId == visitId &&
+        getAfter(/databases/$(database)/documents/checkIns/$(request.resource.data.checkInId)).data.syncOperationId == request.resource.data.operationId;
       allow update, delete: if false;
     }
 
@@ -201,11 +228,18 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         request.resource.data.customerId == request.auth.uid &&
         request.resource.data.restaurantId is string &&
-        request.resource.data.status == 'pending';
+        request.resource.data.requestedAt is timestamp &&
+        request.resource.data.expiresAt is timestamp &&
+        request.resource.data.status == 'pending' &&
+        hasOnlyFields([
+          'customerId', 'restaurantId', 'requestedAt', 'expiresAt', 'status',
+          'customerLatitude', 'customerLongitude', 'distanceMeters'
+        ]);
       allow update: if isSignedIn() &&
         (
           (
             isMerchantForRestaurant(resource.data.restaurantId) &&
+            resource.data.status == 'pending' &&
             request.resource.data.restaurantId == resource.data.restaurantId &&
             request.resource.data.customerId == resource.data.customerId &&
             (
@@ -214,14 +248,21 @@ service cloud.firestore {
                 request.resource.data.validatedBy == request.auth.uid &&
                 request.resource.data.validatedAt is timestamp &&
                 request.resource.data.pointsAwarded is int &&
+                request.resource.data.pointsAwarded ==
+                  get(/databases/$(database)/documents/restaurants/$(resource.data.restaurantId)).data.pointsPerVisit &&
                 request.resource.data.visitId is string &&
-                changedOnly(['status', 'validatedAt', 'validatedBy', 'pointsAwarded', 'visitId'])
+                request.resource.data.syncOperationId == 'approveCheckIn:' + id &&
+                existsAfter(/databases/$(database)/documents/visits/$(request.resource.data.visitId)) &&
+                getAfter(/databases/$(database)/documents/visits/$(request.resource.data.visitId)).data.checkInId == id &&
+                getAfter(/databases/$(database)/documents/visits/$(request.resource.data.visitId)).data.operationId == request.resource.data.syncOperationId &&
+                changedOnly(['status', 'validatedAt', 'validatedBy', 'pointsAwarded', 'visitId', 'syncOperationId'])
               ) ||
               (
                 request.resource.data.status == 'rejected' &&
                 request.resource.data.rejectedBy == request.auth.uid &&
                 request.resource.data.rejectedAt is timestamp &&
-                changedOnly(['status', 'rejectedAt', 'rejectedBy'])
+                request.resource.data.syncOperationId == 'rejectCheckIn:' + id &&
+                changedOnly(['status', 'rejectedAt', 'rejectedBy', 'syncOperationId'])
               ) ||
               (
                 request.resource.data.status == 'expired' &&
@@ -231,6 +272,7 @@ service cloud.firestore {
           ) ||
           (
             resource.data.customerId == request.auth.uid &&
+            resource.data.status == 'pending' &&
             request.resource.data.restaurantId == resource.data.restaurantId &&
             request.resource.data.customerId == resource.data.customerId &&
             (
@@ -292,7 +334,17 @@ service cloud.firestore {
       allow get, list: if isSignedIn();
       allow create, update: if isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
-        id == request.resource.data.restaurantId + '_' + request.auth.uid;
+        id == request.resource.data.restaurantId + '_' + request.auth.uid &&
+        request.resource.data.restaurantId is string &&
+        request.resource.data.userName is string &&
+        request.resource.data.rating is int &&
+        request.resource.data.rating >= 1 &&
+        request.resource.data.rating <= 5 &&
+        request.resource.data.comment is string &&
+        request.resource.data.createdAt is timestamp &&
+        hasOnlyFields([
+          'userId', 'restaurantId', 'userName', 'rating', 'comment', 'createdAt'
+        ]);
       allow delete: if false;
     }
 
@@ -304,6 +356,9 @@ service cloud.firestore {
         request.resource.data.referredUserId == request.auth.uid &&
         request.resource.data.referrerId is string &&
         request.resource.data.referrerId != request.auth.uid &&
+        request.resource.data.referralCode is string &&
+        exists(/databases/$(database)/documents/referralCodes/$(request.resource.data.referralCode)) &&
+        get(/databases/$(database)/documents/referralCodes/$(request.resource.data.referralCode)).data.userId == request.resource.data.referrerId &&
         request.resource.data.status == 'pending' &&
         request.resource.data.pointsEarned == 0 &&
         (
@@ -316,23 +371,20 @@ service cloud.firestore {
             id == request.resource.data.restaurantId + '_' + request.resource.data.referredUserId
           )
         );
-      allow update: if isSignedIn() &&
-        resource.data.status == 'pending' &&
-        request.resource.data.referrerId == resource.data.referrerId &&
-        request.resource.data.referredUserId == resource.data.referredUserId &&
-        request.resource.data.status == 'rewarded' &&
-        request.resource.data.pointsEarned is int &&
-        request.resource.data.pointsEarned > 0 &&
-        request.resource.data.completedAt is timestamp &&
-        request.resource.data.rewardedAt is timestamp &&
-        request.resource.data.restaurantId is string &&
-        isMerchantForRestaurant(request.resource.data.restaurantId) &&
-        (
-          !('restaurantId' in resource.data) ||
-          resource.data.restaurantId == request.resource.data.restaurantId
-        ) &&
-        changedOnly(['restaurantId', 'status', 'pointsEarned', 'completedAt', 'rewardedAt', 'updatedAt']);
+      allow update: if false;
       allow delete: if false;
+    }
+
+    match /businessOperations/{id} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyTransactionLocks/{id} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

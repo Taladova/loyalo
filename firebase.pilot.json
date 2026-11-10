@@ -1,0 +1,12 @@
+{
+  "functions": {
+    "source": "functions"
+  },
+  "firestore": {
+    "rules": "config/firebase/pilot/firestore.rules",
+    "indexes": "config/firebase/pilot/firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "config/firebase/pilot/storage.rules"
+  }
+}

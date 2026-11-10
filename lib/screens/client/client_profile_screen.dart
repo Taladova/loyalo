@@ -119,7 +119,7 @@ class ClientProfileScreen extends ConsumerWidget {
               // vide pas currentUserProvider ici : l'écran actuel le lit
               // encore pendant l'animation de sortie, et la prochaine
               // connexion le réécrit de toute façon avant d'y revenir.
-              repo.stopListening();
+              await repo.stopListening();
               await AuthService().signOut();
               if (!context.mounted) return;
               Navigator.of(context).pushAndRemoveUntil(

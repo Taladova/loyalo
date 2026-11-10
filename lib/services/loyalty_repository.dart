@@ -4,6 +4,11 @@ import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../core/database/app_database.dart';
+import '../core/database/tables/local_visits.dart';
+import '../core/network/network_monitor.dart';
+import '../features/checkins/data/checkin_repository.dart';
+import '../features/visits/data/visit_repository.dart';
 import '../models/app_user.dart';
 import '../models/check_in_request.dart';
 import '../models/exclusive_offer.dart';
@@ -106,12 +111,14 @@ class CheckInValidationResult {
   final Restaurant? restaurant;
   final int passageCount;
   final int pointsAwarded;
+  final bool synced;
 
   const CheckInValidationResult({
     required this.outcome,
     this.restaurant,
     this.passageCount = 0,
     this.pointsAwarded = 0,
+    this.synced = false,
   });
 }
 
@@ -139,27 +146,58 @@ class DirectoryClient {
 /// createRestaurant, ...) sont asynchrones et mettent aussi à jour le
 /// cache local de façon optimiste pour un retour instantané dans l'UI.
 class LoyaltyRepository extends ChangeNotifier {
-  LoyaltyRepository({FirebaseFirestore? firestore, DateTime Function()? clock})
-    : _db = firestore ?? FirebaseFirestore.instance,
-      _clock = clock ?? DateTime.now;
+  LoyaltyRepository({
+    FirebaseFirestore? firestore,
+    AppDatabase? database,
+    NetworkMonitor? networkMonitor,
+    DateTime Function()? clock,
+    VisitRepository? visitRepository,
+    CheckInRepository? checkInRepository,
+  }) : _db = firestore ?? FirebaseFirestore.instance,
+       _clock = clock ?? DateTime.now {
+    final resolvedDatabase = database ?? AppDatabase();
+    _checkInRepository =
+        checkInRepository ??
+        CheckInRepository(_db, database: resolvedDatabase, clock: _clock);
+    _visitRepository =
+        visitRepository ??
+        VisitRepository(
+          _db,
+          database: resolvedDatabase,
+          networkMonitor: networkMonitor,
+          checkInSyncService: _checkInRepository.syncService,
+          clock: _clock,
+        );
+    _checkInRepository.attachSynchronizer(
+      (owner) => _visitRepository.retryPendingVisits(ownerScopeId: owner),
+    );
+  }
 
   final FirebaseFirestore _db;
   final DateTime Function() _clock;
+  late final VisitRepository _visitRepository;
+  late final CheckInRepository _checkInRepository;
 
   bool _listening = false;
+  String? _listeningClientId;
+  String? _listeningMerchantRestaurantId;
+  String? _listeningMerchantOwnerUid;
   bool _restaurantsLoading = false;
   Object? _restaurantsLoadError;
+  Object? _checkInsLoadError;
   final List<StreamSubscription> _subscriptions = [];
 
   List<Restaurant> _restaurants = [];
   List<_UserDoc> _users = [];
-  List<Visit> _visits = [];
+  List<Visit> get _visits => _visitRepository.visits;
   List<RewardItem> _rewardItems = [];
   List<RewardDefinition> _rewardDefinitions = [];
   List<ExclusiveOffer> _exclusiveOffers = [];
   List<ReferredFriend> _referrals = [];
-  List<CheckInRequest> _checkIns = [];
+  List<CheckInRequest> get _checkIns => _checkInRepository.checkIns;
   List<LoyaloNotification> _notifications = [];
+
+  Object? get checkInsLoadError => _checkInsLoadError;
 
   /// Démarre la synchronisation avec Firestore. À appeler une fois
   /// qu'un utilisateur (client ou commerçant) est authentifié, puisque
@@ -169,18 +207,42 @@ class LoyaltyRepository extends ChangeNotifier {
   }
 
   void startListeningForClient(String userId) {
+    unawaited(_visitRepository.stopAutomaticSync());
     _startListening(clientId: userId);
   }
 
-  void startListeningForMerchant(String restaurantId) {
-    _startListening(merchantRestaurantId: restaurantId);
+  void startListeningForMerchant(String restaurantId, {String? ownerUid}) {
+    unawaited(_visitRepository.startAutomaticSync(restaurantId));
+    _startListening(
+      merchantRestaurantId: restaurantId,
+      merchantOwnerUid: ownerUid ?? restaurantId,
+    );
   }
 
-  void _startListening({String? clientId, String? merchantRestaurantId}) {
+  Future<void> refreshVisits({String? userId, String? restaurantId}) async {
+    await _visitRepository.refreshVisitsFromRemote(
+      userId: userId,
+      restaurantId: restaurantId,
+    );
+    notifyListeners();
+  }
+
+  Future<void> retryPendingVisits(String restaurantId) =>
+      _visitRepository.retryPendingVisits(ownerScopeId: restaurantId);
+
+  void _startListening({
+    String? clientId,
+    String? merchantRestaurantId,
+    String? merchantOwnerUid,
+  }) {
     if (_listening) return;
     _listening = true;
+    _listeningClientId = clientId;
+    _listeningMerchantRestaurantId = merchantRestaurantId;
+    _listeningMerchantOwnerUid = merchantOwnerUid;
     _restaurantsLoading = true;
     _restaurantsLoadError = null;
+    _checkInsLoadError = null;
 
     if (merchantRestaurantId != null) {
       _subscriptions.add(
@@ -203,16 +265,10 @@ class LoyaltyRepository extends ChangeNotifier {
                 ? _db.collection('restaurants').where('active', isEqualTo: true)
                 : _db.collection('restaurants'))
             .snapshots()
-            .listen((snap) async {
+            .listen((snap) {
               _restaurantsLoading = false;
               _restaurantsLoadError = null;
-              if (snap.docs.isEmpty && clientId == null) {
-                await _seedDefaultRestaurants();
-                return;
-              }
-              _restaurants = snap.docs.isEmpty && clientId != null
-                  ? _rennesDemoRestaurants
-                  : snap.docs.map(Restaurant.fromFirestore).toList();
+              _restaurants = snap.docs.map(Restaurant.fromFirestore).toList();
               notifyListeners();
             }, onError: _handleRestaurantsError),
       );
@@ -237,16 +293,9 @@ class LoyaltyRepository extends ChangeNotifier {
     );
 
     _subscriptions.add(
-      (clientId != null
-              ? _db.collection('visits').where('userId', isEqualTo: clientId)
-              : merchantRestaurantId != null
-              ? _db
-                    .collection('visits')
-                    .where('restaurantId', isEqualTo: merchantRestaurantId)
-              : _db.collection('visits'))
-          .snapshots()
-          .listen((snap) async {
-            _visits = snap.docs.map(Visit.fromFirestore).toList();
+      _visitRepository
+          .watchVisits(userId: clientId, restaurantId: merchantRestaurantId)
+          .listen((_) async {
             if (merchantRestaurantId != null) {
               await _refreshMerchantUsers(merchantRestaurantId);
             }
@@ -298,23 +347,19 @@ class LoyaltyRepository extends ChangeNotifier {
     );
 
     _subscriptions.add(
-      (clientId != null
-              ? _db
-                    .collection('checkIns')
-                    .where('customerId', isEqualTo: clientId)
-              : merchantRestaurantId != null
-              ? _db
-                    .collection('checkIns')
-                    .where('restaurantId', isEqualTo: merchantRestaurantId)
-              : _db.collection('checkIns'))
-          .snapshots()
-          .listen((snap) async {
-            _checkIns = snap.docs.map(CheckInRequest.fromFirestore).toList();
+      _checkInRepository
+          .watchCheckIns(
+            customerId: clientId,
+            restaurantId: merchantRestaurantId,
+            ownerUid: merchantOwnerUid,
+          )
+          .listen((_) async {
+            _checkInsLoadError = _checkInRepository.loadError;
             if (merchantRestaurantId != null) {
               await _refreshMerchantUsers(merchantRestaurantId);
             }
             notifyListeners();
-          }, onError: (_) {}),
+          }, onError: _handleCheckInsError),
     );
 
     if (clientId == null && merchantRestaurantId == null) {
@@ -336,6 +381,35 @@ class LoyaltyRepository extends ChangeNotifier {
     );
     _restaurantsLoading = false;
     _restaurantsLoadError = error;
+    _restaurants = [];
+    notifyListeners();
+  }
+
+  /// Relance les écouteurs de la session courante après une erreur réseau.
+  /// Les données locales offline-first ne sont pas supprimées.
+  Future<void> retryRestaurants() async {
+    final clientId = _listeningClientId;
+    final merchantRestaurantId = _listeningMerchantRestaurantId;
+    final merchantOwnerUid = _listeningMerchantOwnerUid;
+    await stopListening();
+    if (clientId != null) {
+      startListeningForClient(clientId);
+    } else if (merchantRestaurantId != null) {
+      startListeningForMerchant(
+        merchantRestaurantId,
+        ownerUid: merchantOwnerUid,
+      );
+    } else {
+      startListening();
+    }
+  }
+
+  void _handleCheckInsError(Object error, StackTrace stackTrace) {
+    debugPrint(
+      'LoyaltyRepository: lecture des check-ins impossible: '
+      '$error\n$stackTrace',
+    );
+    _checkInsLoadError = error;
     notifyListeners();
   }
 
@@ -519,218 +593,27 @@ class LoyaltyRepository extends ChangeNotifier {
   /// transition de sortie peut encore le lire une dernière fois, et la
   /// prochaine connexion le remplace de toute façon dès que les nouveaux
   /// écouteurs reçoivent leur premier instantané.
-  void stopListening() {
-    for (final s in _subscriptions) {
-      s.cancel();
-    }
+  Future<void> stopListening() async {
+    await _visitRepository.stopAutomaticSync();
+    await Future.wait(
+      _subscriptions.map((subscription) => subscription.cancel()),
+    );
     _subscriptions.clear();
     _notifications = [];
     _restaurantsLoading = false;
     _restaurantsLoadError = null;
+    _checkInsLoadError = null;
     _listening = false;
   }
 
   @override
   void dispose() {
+    unawaited(_visitRepository.stopAutomaticSync());
     for (final s in _subscriptions) {
       s.cancel();
     }
     super.dispose();
   }
-
-  Future<void> _seedDefaultRestaurants() async {
-    const seed = [
-      Restaurant(
-        id: '',
-        name: 'Le Bistrot Parisien',
-        cuisine: 'Cuisine française',
-        distanceKm: 0.5,
-        rewardThreshold: 10,
-        rewardLabel: 'Un repas offert',
-        icon: Icons.restaurant,
-        latitude: 48.8656,
-        longitude: 2.3212,
-        coverImageUrl:
-            'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80',
-        logoUrl:
-            'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=240&q=80',
-        address: '12 Rue de la Paix, 75002 Paris',
-      ),
-      Restaurant(
-        id: '',
-        name: 'Sushi House',
-        cuisine: 'Japonais',
-        distanceKm: 1.2,
-        rewardThreshold: 10,
-        rewardLabel: '-10% sur votre addition',
-        icon: Icons.set_meal,
-        latitude: 48.8704,
-        longitude: 2.3062,
-        coverImageUrl:
-            'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&w=900&q=80',
-        logoUrl:
-            'https://images.unsplash.com/photo-1617196034796-73dfa7b1fd56?auto=format&fit=crop&w=240&q=80',
-        address: '18 Rue Saint-Honoré, 75001 Paris',
-      ),
-      Restaurant(
-        id: '',
-        name: 'Café de la Paix',
-        cuisine: 'Café',
-        distanceKm: 1.5,
-        rewardThreshold: 8,
-        rewardLabel: 'Boisson offerte',
-        icon: Icons.local_cafe,
-        latitude: 48.8708,
-        longitude: 2.3316,
-        coverImageUrl:
-            'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=900&q=80',
-        logoUrl:
-            'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=240&q=80',
-        address: '5 Place de l\'Opéra, 75009 Paris',
-      ),
-      Restaurant(
-        id: '',
-        name: 'Bella Italia',
-        cuisine: 'Italien',
-        distanceKm: 2.1,
-        rewardThreshold: 10,
-        rewardLabel: '-15% sur votre addition',
-        icon: Icons.local_pizza,
-        latitude: 48.8584,
-        longitude: 2.2945,
-        coverImageUrl:
-            'https://images.unsplash.com/photo-1552566626-52f8b828add9?auto=format&fit=crop&w=900&q=80',
-        logoUrl:
-            'https://images.unsplash.com/photo-1594007654729-407eedc4be65?auto=format&fit=crop&w=240&q=80',
-        address: '44 Avenue de Suffren, 75015 Paris',
-      ),
-    ];
-    final batch = _db.batch();
-    for (final r in seed) {
-      batch.set(_db.collection('restaurants').doc(), r.toMap());
-    }
-    await batch.commit();
-  }
-
-  static const List<Restaurant> _rennesDemoRestaurants = [
-    Restaurant(
-      id: 'demo-rennes-bistro',
-      name: 'Le Bistrot des Lices',
-      cuisine: 'Cuisine française',
-      category: 'Restaurant',
-      description:
-          'Une table rennaise conviviale inspirée des produits du marché des Lices.',
-      distanceKm: 0.4,
-      rewardThreshold: 1,
-      rewardLabel: 'Dessert maison offert',
-      rewardDescription:
-          'Un dessert offert après chaque visite validée pendant la démonstration.',
-      pointsPerVisit: 120,
-      icon: Icons.restaurant,
-      latitude: 48.1127,
-      longitude: -1.6833,
-      address: '8 place des Lices, 35000 Rennes',
-      postalCode: '35000',
-      city: 'Rennes',
-      rating: 4.7,
-      reviewCount: 186,
-      coverImageUrl:
-          'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=85',
-      logoUrl:
-          'https://images.unsplash.com/photo-1552566626-52f8b828add9?auto=format&fit=crop&w=300&q=85',
-      galleryUrls: [
-        'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=700&q=80',
-        'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=700&q=80',
-      ],
-    ),
-    Restaurant(
-      id: 'demo-rennes-creperie',
-      name: 'La Galette du Parlement',
-      cuisine: 'Crêperie bretonne',
-      category: 'Restaurant',
-      description:
-          'Galettes de sarrasin, crêpes gourmandes et recettes bretonnes au cœur de Rennes.',
-      distanceKm: 0.7,
-      rewardThreshold: 6,
-      rewardLabel: 'Crêpe dessert offerte',
-      rewardDescription: 'Une crêpe dessert offerte après 6 visites.',
-      pointsPerVisit: 100,
-      icon: Icons.restaurant,
-      latitude: 48.1118,
-      longitude: -1.6780,
-      address: '12 rue Saint-Georges, 35000 Rennes',
-      postalCode: '35000',
-      city: 'Rennes',
-      rating: 4.8,
-      reviewCount: 241,
-      coverImageUrl:
-          'https://images.unsplash.com/photo-1519676867240-f03562e64548?auto=format&fit=crop&w=1200&q=85',
-      logoUrl:
-          'https://images.unsplash.com/photo-1528207776546-365bb710ee93?auto=format&fit=crop&w=300&q=85',
-      galleryUrls: [
-        'https://images.unsplash.com/photo-1528207776546-365bb710ee93?auto=format&fit=crop&w=700&q=80',
-        'https://images.unsplash.com/photo-1499636136210-6f4ee915583e?auto=format&fit=crop&w=700&q=80',
-      ],
-    ),
-    Restaurant(
-      id: 'demo-rennes-cafe',
-      name: 'Café Vilaine',
-      cuisine: 'Café & brunch',
-      category: 'Café',
-      description:
-          'Café de spécialité, pâtisseries et brunch dans une ambiance lumineuse près des quais.',
-      distanceKm: 1.1,
-      rewardThreshold: 5,
-      rewardLabel: 'Boisson chaude offerte',
-      rewardDescription: 'Votre boisson préférée offerte après 5 passages.',
-      pointsPerVisit: 80,
-      icon: Icons.local_cafe,
-      latitude: 48.1089,
-      longitude: -1.6794,
-      address: '21 quai Émile Zola, 35000 Rennes',
-      postalCode: '35000',
-      city: 'Rennes',
-      rating: 4.6,
-      reviewCount: 128,
-      coverImageUrl:
-          'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=1200&q=85',
-      logoUrl:
-          'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=300&q=85',
-      galleryUrls: [
-        'https://images.unsplash.com/photo-1445116572660-236099ec97a0?auto=format&fit=crop&w=700&q=80',
-        'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=700&q=80',
-      ],
-    ),
-    Restaurant(
-      id: 'demo-rennes-italien',
-      name: 'Casa République',
-      cuisine: 'Cuisine italienne',
-      category: 'Restaurant',
-      description:
-          'Pizzas artisanales et cuisine italienne généreuse à deux pas de République.',
-      distanceKm: 1.4,
-      rewardThreshold: 10,
-      rewardLabel: '-15 % sur l’addition',
-      rewardDescription: '15 % de remise après 10 visites validées.',
-      pointsPerVisit: 150,
-      icon: Icons.local_pizza,
-      latitude: 48.1096,
-      longitude: -1.6810,
-      address: '5 rue de Nemours, 35000 Rennes',
-      postalCode: '35000',
-      city: 'Rennes',
-      rating: 4.7,
-      reviewCount: 204,
-      coverImageUrl:
-          'https://images.unsplash.com/photo-1579751626657-72bc17010498?auto=format&fit=crop&w=1200&q=85',
-      logoUrl:
-          'https://images.unsplash.com/photo-1594007654729-407eedc4be65?auto=format&fit=crop&w=300&q=85',
-      galleryUrls: [
-        'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=700&q=80',
-        'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?auto=format&fit=crop&w=700&q=80',
-      ],
-    ),
-  ];
 
   // ---------------------------------------------------------------------
   // Comptes (client & commerçant)
@@ -1115,15 +998,14 @@ class LoyaltyRepository extends ChangeNotifier {
   // Passages, points, récompenses
   // ---------------------------------------------------------------------
 
-  int passageCount(String userId, String restaurantId) {
-    return _visits
-        .where((v) => v.userId == userId && v.restaurantId == restaurantId)
-        .length;
-  }
+  int passageCount(String userId, String restaurantId) =>
+      _visitRepository.passageCount(userId, restaurantId);
 
   int totalPoints(String userId) {
     var total = 0;
-    for (final v in _visits.where((v) => v.userId == userId)) {
+    for (final v in _visits.where(
+      (v) => v.userId == userId && _visitRepository.isVisitConfirmed(v.id),
+    )) {
       final restaurant = _restaurants
           .where((r) => r.id == v.restaurantId)
           .firstOrNull;
@@ -1169,8 +1051,13 @@ class LoyaltyRepository extends ChangeNotifier {
   }
 
   List<Visit> visitsForUser(String userId) =>
-      _visits.where((v) => v.userId == userId).toList()
-        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      _visitRepository.visitsForUser(userId);
+
+  List<Visit> confirmedVisitsForUser(String userId) =>
+      _visitRepository.confirmedVisitsForUser(userId);
+
+  LocalVisitSyncStatus? visitSyncStatus(String visitId) =>
+      _visitRepository.syncStatusForVisit(visitId);
 
   List<RewardItem> rewardsForUser(String userId) =>
       _rewardItems.where((r) => r.userId == userId).toList();
@@ -1237,8 +1124,6 @@ class LoyaltyRepository extends ChangeNotifier {
     return 'LOYA$suffix';
   }
 
-  static const _referralBonusPoints = 500;
-
   /// Filleuls d'un client : chaque code saisi crée une relation en attente,
   /// puis la première vraie visite validée déclenche le bonus.
   List<ReferredFriend> referralsFor(String userId) {
@@ -1274,6 +1159,7 @@ class LoyaltyRepository extends ChangeNotifier {
       id: docRef.id,
       referrerId: referrerId,
       referredUserId: newUserId,
+      referralCode: trimmed,
       restaurantId: restaurantId,
       name: newUserName,
       status: ReferralStatus.pending,
@@ -1284,128 +1170,47 @@ class LoyaltyRepository extends ChangeNotifier {
     return true;
   }
 
-  bool _hasVisitedToday(String userId, String restaurantId) {
-    final now = _clock();
-    return _visits.any(
-      (v) =>
-          v.userId == userId &&
-          v.restaurantId == restaurantId &&
-          v.isSameDay(now),
-    );
-  }
-
-  Visit? _lastVisitFor(String userId, String restaurantId) {
-    final visits =
-        _visits
-            .where((v) => v.userId == userId && v.restaurantId == restaurantId)
-            .toList()
-          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return visits.firstOrNull;
-  }
-
-  bool _canRegisterVisit(String userId, Restaurant restaurant, DateTime now) {
-    switch (restaurant.validationPolicy) {
-      case VisitValidationPolicy.oncePerDay:
-        return !_hasVisitedToday(userId, restaurant.id);
-      case VisitValidationPolicy.onceEveryXHours:
-        final last = _lastVisitFor(userId, restaurant.id);
-        if (last == null) return true;
-        final minimumGap = Duration(
-          hours: restaurant.minimumHoursBetweenVisits,
-        );
-        return !last.timestamp.add(minimumGap).isAfter(now);
-      case VisitValidationPolicy.perTransaction:
-        return true;
-    }
-  }
+  bool _canRegisterVisit(String userId, Restaurant restaurant, DateTime now) =>
+      _visitRepository.canRegisterVisit(userId, restaurant, now);
 
   CheckInRequest? activeCheckInForUserAndRestaurant({
     required String userId,
     required String restaurantId,
-  }) {
-    final now = _clock();
-    final active =
-        _checkIns
-            .where(
-              (request) =>
-                  request.customerId == userId &&
-                  request.restaurantId == restaurantId &&
-                  request.status == CheckInStatus.pending &&
-                  request.expiresAt.isAfter(now),
-            )
-            .toList()
-          ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt));
-    return active.firstOrNull;
-  }
+  }) => _checkInRepository.activeCheckInForUserAndRestaurant(
+    userId: userId,
+    restaurantId: restaurantId,
+  );
 
-  List<CheckInRequest> pendingCheckInsForRestaurant(String restaurantId) {
-    final now = _clock();
-    final pending =
-        _checkIns
-            .where(
-              (request) =>
-                  request.restaurantId == restaurantId &&
-                  request.status == CheckInStatus.pending &&
-                  request.expiresAt.isAfter(now),
-            )
-            .toList()
-          ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt));
-    return pending;
-  }
+  List<CheckInRequest> pendingCheckInsForRestaurant(String restaurantId) =>
+      _checkInRepository.pendingCheckInsForRestaurant(restaurantId);
 
   Stream<List<CheckInRequest>> watchPendingCheckInsForRestaurant(
     String restaurantId,
-  ) {
-    return _db
-        .collection('checkIns')
-        .where('restaurantId', isEqualTo: restaurantId)
-        .where('status', isEqualTo: CheckInStatus.pending.firestoreValue)
-        .snapshots()
-        .map((snap) {
-          final now = _clock();
-          final requests =
-              snap.docs
-                  .map(CheckInRequest.fromFirestore)
-                  .where((request) => request.expiresAt.isAfter(now))
-                  .toList()
-                ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt));
-          return requests;
-        });
-  }
+  ) => _checkInRepository.watchPendingCheckInsForRestaurant(restaurantId);
+
+  Stream<List<CheckInRequest>> watchMerchantValidationQueue(
+    String restaurantId, {
+    String? ownerUid,
+  }) => _checkInRepository.watchMerchantValidationQueue(
+    restaurantId,
+    ownerUid: ownerUid,
+  );
 
   Future<void> cancelCheckIn({
     required String checkInId,
     required String userId,
-  }) async {
-    final ref = _db.collection('checkIns').doc(checkInId);
-    await _db.runTransaction((transaction) async {
-      final snap = await transaction.get(ref);
-      if (!snap.exists) return;
-      final request = CheckInRequest.fromFirestore(snap);
-      if (request.customerId != userId ||
-          request.status != CheckInStatus.pending) {
-        return;
-      }
-      transaction.update(ref, {
-        'status': CheckInStatus.cancelled.firestoreValue,
-        'cancelledAt': Timestamp.fromDate(_clock()),
-      });
-    });
-  }
+  }) => _checkInRepository.cancelCheckIn(checkInId: checkInId, userId: userId);
 
   Future<CheckInValidationResult> rejectCheckIn({
     required String checkInId,
     required String merchantId,
   }) async {
-    await expirePendingCheckIns();
-    final checkInRef = _db.collection('checkIns').doc(checkInId);
-    final snap = await checkInRef.get();
-    if (!snap.exists) {
+    final request = await _checkInRepository.getCheckIn(checkInId);
+    if (request == null) {
       return const CheckInValidationResult(
         outcome: CheckInValidationOutcome.notFound,
       );
     }
-    final request = CheckInRequest.fromFirestore(snap);
     final restaurant = restaurantByIdOrNull(request.restaurantId);
     if (restaurant == null ||
         !await _merchantCanValidateRestaurant(
@@ -1418,67 +1223,33 @@ class LoyaltyRepository extends ChangeNotifier {
       );
     }
 
-    final now = _clock();
-    if (request.status != CheckInStatus.pending) {
-      return CheckInValidationResult(
-        outcome: request.status == CheckInStatus.expired
-            ? CheckInValidationOutcome.expired
-            : CheckInValidationOutcome.notPending,
-        restaurant: restaurant,
-      );
-    }
-    if (!request.expiresAt.isAfter(now)) {
-      await checkInRef.update({'status': CheckInStatus.expired.firestoreValue});
-      return CheckInValidationResult(
-        outcome: CheckInValidationOutcome.expired,
-        restaurant: restaurant,
-      );
-    }
+    await _checkInRepository.cacheForMerchant(request, merchantId);
 
-    await _db.runTransaction((transaction) async {
-      final liveSnap = await transaction.get(checkInRef);
-      if (!liveSnap.exists) return;
-      final live = CheckInRequest.fromFirestore(liveSnap);
-      if (live.status != CheckInStatus.pending ||
-          !live.expiresAt.isAfter(_clock())) {
-        return;
-      }
-      transaction.update(checkInRef, {
-        'status': CheckInStatus.rejected.firestoreValue,
-        'rejectedAt': Timestamp.fromDate(_clock()),
-        'rejectedBy': merchantId,
-      });
-    });
-
-    await _createNotification(
-      recipientType: 'client',
-      userId: request.customerId,
-      restaurantId: request.restaurantId,
-      title: 'Demande refusée',
-      body: 'Votre arrivée chez ${restaurant.name} n’a pas été validée.',
-      type: 'check_in_rejected',
-      relatedId: checkInId,
+    final local = await _checkInRepository.rejectLocally(
+      checkInId: checkInId,
+      ownerUid: merchantId,
+      merchantId: request.restaurantId,
     );
+    final outcome = switch (local.outcome) {
+      LocalCheckInMutationOutcome.completed =>
+        CheckInValidationOutcome.rejected,
+      LocalCheckInMutationOutcome.notFound => CheckInValidationOutcome.notFound,
+      LocalCheckInMutationOutcome.notPending =>
+        CheckInValidationOutcome.notPending,
+      LocalCheckInMutationOutcome.expired => CheckInValidationOutcome.expired,
+      LocalCheckInMutationOutcome.tooFrequent =>
+        CheckInValidationOutcome.notPending,
+    };
     return CheckInValidationResult(
-      outcome: CheckInValidationOutcome.rejected,
+      outcome: outcome,
       restaurant: restaurant,
       passageCount: passageCount(request.customerId, request.restaurantId),
+      synced: local.synced,
     );
   }
 
-  Future<void> expirePendingCheckIns() async {
-    final now = _clock();
-    final expired = _checkIns.where(
-      (request) =>
-          request.status == CheckInStatus.pending &&
-          !request.expiresAt.isAfter(now),
-    );
-    for (final request in expired) {
-      await _db.collection('checkIns').doc(request.id).update({
-        'status': CheckInStatus.expired.firestoreValue,
-      });
-    }
-  }
+  Future<void> expirePendingCheckIns() =>
+      _checkInRepository.expirePendingCheckIns();
 
   Future<CheckInCreateResult> createCheckIn({
     required String userId,
@@ -1502,7 +1273,10 @@ class LoyaltyRepository extends ChangeNotifier {
           userId: userId,
           restaurantId: restaurantId,
         ) ??
-        await _activeCheckInFromFirestore(userId, restaurantId);
+        await _checkInRepository.activeCheckInFromFirestore(
+          userId: userId,
+          restaurantId: restaurantId,
+        );
     if (existing != null) {
       return CheckInCreateResult(
         outcome: CheckInCreateOutcome.alreadyActive,
@@ -1530,41 +1304,50 @@ class LoyaltyRepository extends ChangeNotifier {
     }
 
     final now = _clock();
-    final docRef = _db.collection('checkIns').doc();
-    await _rememberRestaurantCustomer(
-      restaurantId: restaurantId,
+    final request = await _checkInRepository.createPendingCheckIn(
       userId: userId,
-    );
-    final request = CheckInRequest(
-      id: docRef.id,
-      customerId: userId,
       restaurantId: restaurantId,
       requestedAt: now,
       expiresAt: now.add(const Duration(minutes: 10)),
-      status: CheckInStatus.pending,
       customerLatitude: customerLatitude,
       customerLongitude: customerLongitude,
       distanceMeters: distanceMeters,
     );
-    await docRef.set(request.toMap());
-    _checkIns = [
-      ..._checkIns.where((existing) => existing.id != request.id),
-      request,
-    ];
     notifyListeners();
-    await _createNotification(
-      recipientType: 'merchant',
-      userId: await _merchantUserIdForRestaurant(restaurantId),
-      restaurantId: restaurantId,
-      title: _pendingCheckInsForRestaurantCount(restaurantId) > 1
-          ? '${_pendingCheckInsForRestaurantCount(restaurantId)} clients attendent'
-          : '${nameForClient(userId)} est arrivé',
-      body: _pendingCheckInsForRestaurantCount(restaurantId) > 1
-          ? 'Plusieurs clients Loyalo attendent votre validation.'
-          : 'Un client Loyalo attend votre validation.',
-      type: 'check_in_requested',
-      relatedId: docRef.id,
-    );
+
+    // Ces écritures enrichissent l'expérience, mais ne doivent jamais annuler
+    // une demande déjà créée si leurs règles ou données annexes sont absentes.
+    try {
+      await _rememberRestaurantCustomer(
+        restaurantId: restaurantId,
+        userId: userId,
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Check-in ${request.id}: association client/restaurant impossible: '
+        '$error\n$stackTrace',
+      );
+    }
+    try {
+      await _createNotification(
+        recipientType: 'merchant',
+        userId: await _merchantUserIdForRestaurant(restaurantId),
+        restaurantId: restaurantId,
+        title: _pendingCheckInsForRestaurantCount(restaurantId) > 1
+            ? '${_pendingCheckInsForRestaurantCount(restaurantId)} clients attendent'
+            : '${nameForClient(userId)} est arrivé',
+        body: _pendingCheckInsForRestaurantCount(restaurantId) > 1
+            ? 'Plusieurs clients Loyalo attendent votre validation.'
+            : 'Un client Loyalo attend votre validation.',
+        type: 'check_in_requested',
+        relatedId: request.id,
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Check-in ${request.id}: notification commerçant impossible: '
+        '$error\n$stackTrace',
+      );
+    }
     return CheckInCreateResult(
       outcome: CheckInCreateOutcome.created,
       request: request,
@@ -1572,26 +1355,6 @@ class LoyaltyRepository extends ChangeNotifier {
           ? 'Arrivée signalée. Distance GPS à confirmer par le commerçant.'
           : 'Arrivée signalée. Le commerçant a été informé.',
     );
-  }
-
-  Future<CheckInRequest?> _activeCheckInFromFirestore(
-    String userId,
-    String restaurantId,
-  ) async {
-    final now = _clock();
-    final snap = await _db
-        .collection('checkIns')
-        .where('customerId', isEqualTo: userId)
-        .where('restaurantId', isEqualTo: restaurantId)
-        .where('status', isEqualTo: CheckInStatus.pending.firestoreValue)
-        .get();
-    final active =
-        snap.docs
-            .map(CheckInRequest.fromFirestore)
-            .where((request) => request.expiresAt.isAfter(now))
-            .toList()
-          ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt));
-    return active.firstOrNull;
   }
 
   /// Enregistre le passage d'un client validé par le commerçant (via son
@@ -1628,61 +1391,41 @@ class LoyaltyRepository extends ChangeNotifier {
         _rewardCycleFor(visitCount: newCount, restaurant: restaurant) >
         _rewardCycleFor(visitCount: newCount - 1, restaurant: restaurant);
 
+    final creation = await _visitRepository.createVisit(
+      userId: userId,
+      restaurantId: restaurantId,
+      ownerScopeId: restaurant.id,
+      timestamp: _clock(),
+      preventSameDayDuplicate:
+          restaurant.validationPolicy == VisitValidationPolicy.oncePerDay,
+    );
+    if (creation.alreadyExists) {
+      return VisitResult(
+        outcome: VisitOutcome.alreadyValidatedToday,
+        restaurant: restaurant,
+        passageCount: passageCount(userId, restaurantId),
+      );
+    }
+
+    // Rewards, referrals and notifications remain remote-only for now. They
+    // must not become definitive from a Visit that Firestore has not confirmed.
+    if (!creation.synced) {
+      return VisitResult(
+        outcome: VisitOutcome.validated,
+        restaurant: restaurant,
+        passageCount: newCount,
+      );
+    }
+
     await _rememberRestaurantCustomer(
       restaurantId: restaurantId,
       userId: userId,
     );
 
-    if (restaurant.validationPolicy == VisitValidationPolicy.oncePerDay) {
-      final now = _clock();
-      final dateKey = '${now.year}-${now.month}-${now.day}';
-      final docRef = _db
-          .collection('visits')
-          .doc('${restaurantId}_${userId}_$dateKey');
-      var alreadyExists = false;
-      await _db.runTransaction((transaction) async {
-        final snap = await transaction.get(docRef);
-        if (snap.exists) {
-          alreadyExists = true;
-          return;
-        }
-        transaction.set(
-          docRef,
-          Visit(
-            id: docRef.id,
-            userId: userId,
-            restaurantId: restaurantId,
-            timestamp: now,
-          ).toMap(),
-        );
-      });
-      if (alreadyExists) {
-        return VisitResult(
-          outcome: VisitOutcome.alreadyValidatedToday,
-          restaurant: restaurant,
-          passageCount: passageCount(userId, restaurantId),
-        );
-      }
-    } else {
-      final docRef = _db.collection('visits').doc();
-      final visit = Visit(
-        id: docRef.id,
-        userId: userId,
-        restaurantId: restaurantId,
-        timestamp: _clock(),
-      );
-      await docRef.set(visit.toMap());
-    }
-
     await _createRewardForCurrentCycleIfNeeded(
       userId: userId,
       restaurant: restaurant,
       visitCount: newCount,
-    );
-    await _completeEligibleReferralsAfterVisit(
-      referredUserId: userId,
-      restaurantId: restaurantId,
-      isFirstVisitForThisRestaurant: newCount == 1,
     );
     await _createNotification(
       recipientType: 'client',
@@ -1708,32 +1451,12 @@ class LoyaltyRepository extends ChangeNotifier {
     required String checkInId,
     required String merchantId,
   }) async {
-    await expirePendingCheckIns();
-
-    final checkInRef = _db.collection('checkIns').doc(checkInId);
-    final snap = await checkInRef.get();
-    if (!snap.exists) {
+    final request = await _checkInRepository.getCheckIn(checkInId);
+    if (request == null) {
       return const CheckInValidationResult(
         outcome: CheckInValidationOutcome.notFound,
       );
     }
-
-    final request = CheckInRequest.fromFirestore(snap);
-    if (request.status != CheckInStatus.pending) {
-      return CheckInValidationResult(
-        outcome: request.status == CheckInStatus.expired
-            ? CheckInValidationOutcome.expired
-            : CheckInValidationOutcome.notPending,
-      );
-    }
-    final now = _clock();
-    if (!request.expiresAt.isAfter(now)) {
-      await checkInRef.update({'status': CheckInStatus.expired.firestoreValue});
-      return const CheckInValidationResult(
-        outcome: CheckInValidationOutcome.expired,
-      );
-    }
-
     final restaurant = restaurantById(request.restaurantId);
     if (!await _merchantCanValidateRestaurant(
       merchantId: merchantId,
@@ -1744,20 +1467,7 @@ class LoyaltyRepository extends ChangeNotifier {
         restaurant: restaurant,
       );
     }
-
-    if (!_canRegisterVisit(request.customerId, restaurant, now)) {
-      await checkInRef.update({
-        'status': CheckInStatus.rejected.firestoreValue,
-        'rejectedAt': Timestamp.fromDate(now),
-        'rejectedBy': merchantId,
-      });
-      return CheckInValidationResult(
-        outcome: CheckInValidationOutcome.alreadyValidated,
-        restaurant: restaurant,
-        passageCount: passageCount(request.customerId, request.restaurantId),
-      );
-    }
-
+    await _checkInRepository.cacheForMerchant(request, merchantId);
     final newCount = passageCount(request.customerId, request.restaurantId) + 1;
     final previousCycle = _rewardCycleFor(
       visitCount: newCount - 1,
@@ -1768,144 +1478,50 @@ class LoyaltyRepository extends ChangeNotifier {
       restaurant: restaurant,
     );
     final justUnlocked = nextCycle > previousCycle;
-    final dateKey = '${now.year}-${now.month}-${now.day}';
-    final visitId =
-        restaurant.validationPolicy == VisitValidationPolicy.oncePerDay
-        ? '${restaurant.id}_${request.customerId}_$dateKey'
-        : 'checkin_$checkInId';
-    final visitRef = _db.collection('visits').doc(visitId);
-    final rewardRef = justUnlocked
-        ? _db
-              .collection('rewards')
-              .doc(
-                _rewardDocumentId(
-                  userId: request.customerId,
-                  restaurantId: restaurant.id,
-                  cycle: nextCycle,
-                ),
-              )
+    final reward = justUnlocked
+        ? <String, Object?>{
+            'id': _rewardDocumentId(
+              userId: request.customerId,
+              restaurantId: restaurant.id,
+              cycle: nextCycle,
+            ),
+            'userId': request.customerId,
+            'restaurantName': restaurant.name,
+            'restaurantId': restaurant.id,
+            'label': restaurant.rewardLabel,
+            'expiresAt': _clock()
+                .add(const Duration(days: 30))
+                .toUtc()
+                .toIso8601String(),
+            'status': 'available',
+            'cycle': nextCycle,
+          }
         : null;
-    var committed = false;
-    var alreadyValidated = false;
-
-    await _db.runTransaction((transaction) async {
-      final liveSnap = await transaction.get(checkInRef);
-      final existingVisitSnap = await transaction.get(visitRef);
-      final rewardSnap = rewardRef == null
-          ? null
-          : await transaction.get(rewardRef);
-      if (!liveSnap.exists) return;
-      final live = CheckInRequest.fromFirestore(liveSnap);
-      if (live.status != CheckInStatus.pending ||
-          !live.expiresAt.isAfter(_clock())) {
-        return;
-      }
-      if (existingVisitSnap.exists) {
-        transaction.update(checkInRef, {
-          'status': CheckInStatus.rejected.firestoreValue,
-          'rejectedAt': Timestamp.fromDate(_clock()),
-          'rejectedBy': merchantId,
-        });
-        alreadyValidated = true;
-        return;
-      }
-
-      final visit = Visit(
-        id: visitRef.id,
-        userId: request.customerId,
-        restaurantId: request.restaurantId,
-        timestamp: _clock(),
-      );
-      transaction.set(visitRef, visit.toMap());
-      if (rewardRef != null) {
-        if (rewardSnap?.exists == true) {
-          transaction.update(checkInRef, {
-            'status': CheckInStatus.approved.firestoreValue,
-            'validatedAt': Timestamp.fromDate(_clock()),
-            'validatedBy': merchantId,
-            'pointsAwarded': restaurant.pointsPerVisit,
-            'visitId': visitRef.id,
-          });
-          committed = true;
-          return;
-        }
-        final reward = RewardItem(
-          id: rewardRef.id,
-          userId: request.customerId,
-          restaurantName: restaurant.name,
-          restaurantId: restaurant.id,
-          label: restaurant.rewardLabel,
-          expiresAt: _clock().add(const Duration(days: 30)),
-          status: RewardStatus.available,
-          cycle: nextCycle,
-        );
-        transaction.set(rewardRef, reward.toMap());
-      }
-      transaction.update(checkInRef, {
-        'status': CheckInStatus.approved.firestoreValue,
-        'validatedAt': Timestamp.fromDate(_clock()),
-        'validatedBy': merchantId,
-        'pointsAwarded': restaurant.pointsPerVisit,
-        'visitId': visitRef.id,
-      });
-      committed = true;
-    });
-
-    if (alreadyValidated) {
-      return CheckInValidationResult(
-        outcome: CheckInValidationOutcome.alreadyValidated,
-        restaurant: restaurant,
-        passageCount: passageCount(request.customerId, request.restaurantId),
-      );
-    }
-
-    if (!committed) {
-      final liveSnap = await checkInRef.get();
-      if (!liveSnap.exists) {
-        return CheckInValidationResult(
-          outcome: CheckInValidationOutcome.notFound,
-          restaurant: restaurant,
-        );
-      }
-      final live = CheckInRequest.fromFirestore(liveSnap);
-      return CheckInValidationResult(
-        outcome: live.status == CheckInStatus.expired
-            ? CheckInValidationOutcome.expired
-            : CheckInValidationOutcome.notPending,
-        restaurant: restaurant,
-        passageCount: passageCount(request.customerId, request.restaurantId),
-      );
-    }
-
-    await _rememberRestaurantCustomer(
-      restaurantId: request.restaurantId,
-      userId: request.customerId,
+    final local = await _checkInRepository.approveLocally(
+      checkInId: checkInId,
+      ownerUid: merchantId,
+      restaurant: restaurant,
+      pointsAwarded: restaurant.pointsPerVisit,
+      reward: reward,
     );
-    await _completeEligibleReferralsAfterVisit(
-      referredUserId: request.customerId,
-      restaurantId: request.restaurantId,
-      isFirstVisitForThisRestaurant: newCount == 1,
-    );
-
-    await _createNotification(
-      recipientType: 'client',
-      userId: request.customerId,
-      restaurantId: request.restaurantId,
-      title: justUnlocked ? 'Récompense débloquée' : 'Visite validée',
-      body: justUnlocked
-          ? '${restaurant.rewardLabel} vous attend chez ${restaurant.name}.'
-          : 'Votre passage chez ${restaurant.name} a été validé.',
-      type: justUnlocked ? 'reward_unlocked' : 'visit_validated',
-      relatedId: checkInId,
-    );
-
+    final outcome = switch (local.outcome) {
+      LocalCheckInMutationOutcome.completed =>
+        justUnlocked && local.synced
+            ? CheckInValidationOutcome.rewardUnlocked
+            : CheckInValidationOutcome.validated,
+      LocalCheckInMutationOutcome.notFound => CheckInValidationOutcome.notFound,
+      LocalCheckInMutationOutcome.notPending =>
+        CheckInValidationOutcome.notPending,
+      LocalCheckInMutationOutcome.expired => CheckInValidationOutcome.expired,
+      LocalCheckInMutationOutcome.tooFrequent =>
+        CheckInValidationOutcome.alreadyValidated,
+    };
     return CheckInValidationResult(
-      outcome: justUnlocked
-          ? CheckInValidationOutcome.rewardUnlocked
-          : CheckInValidationOutcome.validated,
+      outcome: outcome,
       restaurant: restaurant,
       passageCount: newCount,
       pointsAwarded: restaurant.pointsPerVisit,
+      synced: local.synced,
     );
   }
 
@@ -1926,27 +1542,11 @@ class LoyaltyRepository extends ChangeNotifier {
   List<Visit> recentActivityForRestaurant(
     String restaurantId, {
     int limit = 5,
-  }) {
-    final visits = _visits.where((v) => v.restaurantId == restaurantId).toList()
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return visits.take(limit).toList();
-  }
+  }) =>
+      _visitRepository.recentActivityForRestaurant(restaurantId, limit: limit);
 
-  int newClientsToday(String restaurantId) {
-    final now = _clock();
-    final Set<String> seenBeforeToday = {};
-    final Set<String> newToday = {};
-    final visits = _visits.where((v) => v.restaurantId == restaurantId).toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    for (final v in visits) {
-      if (v.isSameDay(now)) {
-        if (!seenBeforeToday.contains(v.userId)) newToday.add(v.userId);
-      } else {
-        seenBeforeToday.add(v.userId);
-      }
-    }
-    return newToday.length;
-  }
+  int newClientsToday(String restaurantId) =>
+      _visitRepository.newClientsToday(restaurantId);
 
   Future<bool> redeemReward({
     required String rewardId,
@@ -1986,145 +1586,34 @@ class LoyaltyRepository extends ChangeNotifier {
     return redeemed;
   }
 
-  Future<void> _completeEligibleReferralsAfterVisit({
-    required String referredUserId,
-    required String restaurantId,
-    required bool isFirstVisitForThisRestaurant,
-  }) async {
-    if (!isFirstVisitForThisRestaurant) return;
-
-    final pending = _referrals.where((referral) {
-      if (referral.referredUserId != referredUserId) return false;
-      if (referral.status != ReferralStatus.pending) return false;
-      return referral.restaurantId == null ||
-          referral.restaurantId == restaurantId;
-    }).toList();
-
-    for (final referral in pending) {
-      final ref = _db.collection('referrals').doc(referral.id);
-      var rewarded = false;
-      await _db.runTransaction((transaction) async {
-        final snap = await transaction.get(ref);
-        if (!snap.exists) return;
-        final live = ReferredFriend.fromFirestore(snap);
-        if (live.status != ReferralStatus.pending) return;
-        if (live.referredUserId != referredUserId) return;
-        if (live.restaurantId != null && live.restaurantId != restaurantId) {
-          return;
-        }
-        transaction.update(ref, {
-          'restaurantId': live.restaurantId ?? restaurantId,
-          'status': ReferralStatus.rewarded.firestoreValue,
-          'pointsEarned': _referralBonusPoints,
-          'completedAt': Timestamp.fromDate(_clock()),
-          'rewardedAt': Timestamp.fromDate(_clock()),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-        rewarded = true;
-      });
-      if (!rewarded) continue;
-      await _createNotification(
-        recipientType: 'client',
-        userId: referral.referrerId,
-        restaurantId: restaurantId,
-        title: 'Parrainage réussi',
-        body: '${referral.name} a effectué sa première visite validée.',
-        type: 'referral_rewarded',
-        relatedId: referral.id,
-      );
-    }
-  }
-
   /// Liste des clients ayant visité un restaurant donné, avec leur nombre
   /// de passages — utilisé par l'espace professionnel restaurant.
-  Map<String, int> clientsForRestaurant(String restaurantId) {
-    final Map<String, int> counts = {};
-    for (final v in _visits.where((v) => v.restaurantId == restaurantId)) {
-      counts[v.userId] = (counts[v.userId] ?? 0) + 1;
-    }
-    return counts;
-  }
+  Map<String, int> clientsForRestaurant(String restaurantId) =>
+      _visitRepository.clientsForRestaurant(restaurantId);
 
-  int visitsToday(String restaurantId) {
-    final now = _clock();
-    return _visits
-        .where((v) => v.restaurantId == restaurantId && v.isSameDay(now))
-        .length;
-  }
+  int visitsToday(String restaurantId) =>
+      _visitRepository.visitsToday(restaurantId);
 
-  List<Visit> visitsForRestaurantSince(String restaurantId, DateTime since) {
-    final visits =
-        _visits
-            .where(
-              (v) =>
-                  v.restaurantId == restaurantId &&
-                  !v.timestamp.isBefore(since),
-            )
-            .toList()
-          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return visits;
-  }
+  List<Visit> visitsForRestaurantSince(String restaurantId, DateTime since) =>
+      _visitRepository.visitsForRestaurantSince(restaurantId, since);
 
   List<Visit> visitsForRestaurantBetween(
     String restaurantId,
     DateTime start,
     DateTime end,
-  ) {
-    final visits =
-        _visits
-            .where(
-              (v) =>
-                  v.restaurantId == restaurantId &&
-                  !v.timestamp.isBefore(start) &&
-                  v.timestamp.isBefore(end),
-            )
-            .toList()
-          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return visits;
-  }
+  ) => _visitRepository.visitsForRestaurantBetween(restaurantId, start, end);
 
-  int uniqueClientsForRestaurant(String restaurantId) {
-    return _visits
-        .where((v) => v.restaurantId == restaurantId)
-        .map((v) => v.userId)
-        .toSet()
-        .length;
-  }
+  int uniqueClientsForRestaurant(String restaurantId) =>
+      _visitRepository.uniqueClientsForRestaurant(restaurantId);
 
-  int activeClientsSince(String restaurantId, DateTime since) {
-    return _visits
-        .where(
-          (v) => v.restaurantId == restaurantId && !v.timestamp.isBefore(since),
-        )
-        .map((v) => v.userId)
-        .toSet()
-        .length;
-  }
+  int activeClientsSince(String restaurantId, DateTime since) =>
+      _visitRepository.activeClientsSince(restaurantId, since);
 
-  bool isFirstVisitForRestaurant(Visit visit) {
-    return !_visits.any(
-      (candidate) =>
-          candidate.restaurantId == visit.restaurantId &&
-          candidate.userId == visit.userId &&
-          candidate.timestamp.isBefore(visit.timestamp),
-    );
-  }
+  bool isFirstVisitForRestaurant(Visit visit) =>
+      _visitRepository.isFirstVisitForRestaurant(visit);
 
-  int newClientsBetween(String restaurantId, DateTime start, DateTime end) {
-    final firstVisitByUser = <String, DateTime>{};
-    for (final visit in _visits.where((v) => v.restaurantId == restaurantId)) {
-      final current = firstVisitByUser[visit.userId];
-      if (current == null || visit.timestamp.isBefore(current)) {
-        firstVisitByUser[visit.userId] = visit.timestamp;
-      }
-    }
-    return firstVisitByUser.values
-        .where(
-          (firstVisit) =>
-              !firstVisit.isBefore(start) && firstVisit.isBefore(end),
-        )
-        .length;
-  }
+  int newClientsBetween(String restaurantId, DateTime start, DateTime end) =>
+      _visitRepository.newClientsBetween(restaurantId, start, end);
 
   int pointsGrantedBetween(String restaurantId, DateTime start, DateTime end) {
     final restaurant = restaurantByIdOrNull(restaurantId);
@@ -2187,44 +1676,17 @@ class LoyaltyRepository extends ChangeNotifier {
     }).length;
   }
 
-  int pendingCheckInsCount(String restaurantId) {
-    final now = _clock();
-    return _checkIns.where((request) {
-      return request.restaurantId == restaurantId &&
-          request.status == CheckInStatus.pending &&
-          request.expiresAt.isAfter(now);
-    }).length;
-  }
+  int pendingCheckInsCount(String restaurantId) =>
+      _checkInRepository.pendingCheckInsCount(restaurantId);
 
   int approvedCheckInsBetween(
     String restaurantId,
     DateTime start,
     DateTime end,
-  ) {
-    return _checkIns.where((request) {
-      final validatedAt = request.validatedAt;
-      return request.restaurantId == restaurantId &&
-          request.status == CheckInStatus.approved &&
-          validatedAt != null &&
-          !validatedAt.isBefore(start) &&
-          validatedAt.isBefore(end);
-    }).length;
-  }
+  ) => _checkInRepository.approvedCheckInsBetween(restaurantId, start, end);
 
-  int newClientsSince(String restaurantId, DateTime since) {
-    final seenBeforePeriod = <String>{};
-    final newInPeriod = <String>{};
-    final visits = _visits.where((v) => v.restaurantId == restaurantId).toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    for (final v in visits) {
-      if (v.timestamp.isBefore(since)) {
-        seenBeforePeriod.add(v.userId);
-      } else if (!seenBeforePeriod.contains(v.userId)) {
-        newInPeriod.add(v.userId);
-      }
-    }
-    return newInPeriod.length;
-  }
+  int newClientsSince(String restaurantId, DateTime since) =>
+      _visitRepository.newClientsSince(restaurantId, since);
 
   // ---------------------------------------------------------------------
   // Catalogue de récompenses par restaurant (espace commerçant)
@@ -2511,17 +1973,8 @@ class LoyaltyRepository extends ChangeNotifier {
         passageCount(userId, offer.restaurantId) >= offer.minVisitsRequired;
   }
 
-  int _pendingCheckInsForRestaurantCount(String restaurantId) {
-    final now = _clock();
-    return _checkIns
-        .where(
-          (request) =>
-              request.restaurantId == restaurantId &&
-              request.status == CheckInStatus.pending &&
-              request.expiresAt.isAfter(now),
-        )
-        .length;
-  }
+  int _pendingCheckInsForRestaurantCount(String restaurantId) =>
+      _checkInRepository.pendingCheckInsCount(restaurantId);
 
   Future<String?> _merchantUserIdForRestaurant(String restaurantId) async {
     final ownerId = restaurantByIdOrNull(restaurantId)?.ownerId;

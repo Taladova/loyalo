@@ -130,8 +130,11 @@ class _MerchantEstablishmentScreenState
           openingHours: _openingHours,
         );
         await repo.updateRestaurantProfile(restaurant: created, ownerId: uid);
-        repo.stopListening();
-        repo.startListeningForMerchant(restaurantId);
+        await repo.stopListening();
+        repo.startListeningForMerchant(
+          restaurantId,
+          ownerUid: AuthService().currentUser?.uid,
+        );
         ref.read(currentMerchantRestaurantIdProvider.notifier).state =
             restaurantId;
         if (!mounted) return;

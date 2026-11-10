@@ -38,6 +38,7 @@ class ReferredFriend {
   final String id;
   final String referrerId;
   final String referredUserId;
+  final String? referralCode;
   final String? restaurantId;
   final String name;
   final ReferralStatus status;
@@ -50,6 +51,7 @@ class ReferredFriend {
     required this.id,
     required this.referrerId,
     required this.referredUserId,
+    this.referralCode,
     this.restaurantId,
     required this.name,
     required this.status,
@@ -70,6 +72,7 @@ class ReferredFriend {
       id: doc.id,
       referrerId: data['referrerId'] as String? ?? '',
       referredUserId: data['referredUserId'] as String? ?? '',
+      referralCode: data['referralCode'] as String?,
       restaurantId: data['restaurantId'] as String?,
       name: data['name'] as String? ?? '',
       status: ReferralStatusX.fromFirestore(data['status'] as String?),
@@ -84,6 +87,7 @@ class ReferredFriend {
     return {
       'referrerId': referrerId,
       'referredUserId': referredUserId,
+      if (referralCode != null) 'referralCode': referralCode,
       if (restaurantId != null) 'restaurantId': restaurantId,
       'name': name,
       'status': status.firestoreValue,

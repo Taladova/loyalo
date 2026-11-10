@@ -1,11 +1,26 @@
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
+const { setGlobalOptions } = require("firebase-functions/v2");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const {
+  createApproveCheckInSecure,
+} = require("./src/approve_check_in_secure");
+const { createRejectCheckInSecure } = require("./src/reject_check_in_secure");
 
 initializeApp();
+setGlobalOptions({ region: "us-central1" });
 
 const db = getFirestore();
+
+exports.approveCheckInSecure = onCall(
+  createApproveCheckInSecure({ db, FieldValue, HttpsError })
+);
+
+exports.rejectCheckInSecure = onCall(
+  createRejectCheckInSecure({ db, FieldValue, HttpsError })
+);
 
 exports.sendPushForNotification = onDocumentCreated(
   "notifications/{notificationId}",
@@ -21,7 +36,7 @@ exports.sendPushForNotification = onDocumentCreated(
       .get();
 
     const tokens = devices.docs
-      .map((doc) => ({ id: doc.id, token: doc.data().token }))
+      .map((doc) => ({ id: doc.id, ref: doc.ref, token: doc.data().token }))
       .filter((device) => typeof device.token === "string" && device.token);
 
     if (tokens.length === 0) return;
@@ -67,7 +82,7 @@ exports.sendPushForNotification = onDocumentCreated(
         ) {
           return null;
         }
-        return devices.docs[index].ref.set(
+        return tokens[index].ref.set(
           {
             active: false,
             invalidatedAt: FieldValue.serverTimestamp(),

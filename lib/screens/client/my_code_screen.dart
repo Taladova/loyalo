@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../core/database/tables/local_visits.dart';
 import '../../providers/app_providers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loyalo_logo.dart';
@@ -193,6 +194,8 @@ class MyCodeScreen extends ConsumerWidget {
               )
             else
               ...visits.map((visit) {
+                final syncStatus = repo.visitSyncStatus(visit.id);
+                final confirmed = syncStatus == LocalVisitSyncStatus.synced;
                 final restaurant = repo.restaurants
                     .where((r) => r.id == visit.restaurantId)
                     .firstOrNull;
@@ -232,9 +235,15 @@ class MyCodeScreen extends ConsumerWidget {
                           ),
                         ),
                         Text(
-                          '+${restaurant?.pointsPerVisit ?? 0} pts',
-                          style: const TextStyle(
-                            color: AppColors.teal,
+                          confirmed
+                              ? '+${restaurant?.pointsPerVisit ?? 0} pts'
+                              : syncStatus == LocalVisitSyncStatus.failed
+                              ? 'Non attribués'
+                              : 'En attente',
+                          style: TextStyle(
+                            color: confirmed
+                                ? AppColors.teal
+                                : AppColors.textGray,
                             fontSize: 12,
                             fontWeight: FontWeight.w800,
                           ),

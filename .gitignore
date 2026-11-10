@@ -49,3 +49,6 @@ app.*.map.json
 
 # Firebase CLI local deploy cache
 /.firebase/
+
+# Local Firebase pilot credentials (keep the example file versioned)
+/config/firebase/pilot.dart-defines.json

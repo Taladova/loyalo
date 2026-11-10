@@ -1,11 +1,14 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/database/tables/local_visits.dart';
 import '../../models/check_in_request.dart';
 import '../../models/restaurant.dart';
 import '../../providers/app_providers.dart';
+import '../../services/directions_service.dart';
 import '../../services/loyalty_repository.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/exclusive_offer_card.dart';
@@ -173,7 +176,7 @@ class RestaurantDetailScreen extends ConsumerWidget {
                           child: Text(
                             restaurant.address?.isNotEmpty == true
                                 ? restaurant.address!
-                                : '12 Rue de la Paix, 75002 Paris',
+                                : 'Adresse non renseignée',
                             style: TextStyle(fontSize: 12, color: muted),
                           ),
                         ),
@@ -241,7 +244,21 @@ class RestaurantDetailScreen extends ConsumerWidget {
               LoyaloGradientButton(
                 label: 'Y aller',
                 icon: Icons.near_me_outlined,
-                onPressed: () {},
+                onPressed: () async {
+                  final opened = await DirectionsService().openDirections(
+                    restaurant,
+                    platform: defaultTargetPlatform,
+                  );
+                  if (!opened && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Impossible d’ouvrir un itinéraire vers ce commerce.',
+                        ),
+                      ),
+                    );
+                  }
+                },
               ),
               const SizedBox(height: 24),
               _LoyaltyProgramPanel(progress: progress),
@@ -324,25 +341,37 @@ class RestaurantDetailScreen extends ConsumerWidget {
                   style: TextStyle(color: muted, fontSize: 13),
                 )
               else
-                ...visits.map(
-                  (v) => Padding(
+                ...visits.map((v) {
+                  final syncStatus = repo.visitSyncStatus(v.id);
+                  final confirmed = syncStatus == LocalVisitSyncStatus.synced;
+                  return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Row(
                       children: [
-                        const Icon(
-                          Icons.check_circle,
-                          color: AppColors.success,
+                        Icon(
+                          confirmed
+                              ? Icons.check_circle
+                              : syncStatus == LocalVisitSyncStatus.failed
+                              ? Icons.error_outline
+                              : Icons.sync,
+                          color: confirmed ? AppColors.success : muted,
                           size: 18,
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          DateFormat('dd/MM/yyyy à HH:mm').format(v.timestamp),
+                          confirmed
+                              ? DateFormat(
+                                  'dd/MM/yyyy à HH:mm',
+                                ).format(v.timestamp)
+                              : syncStatus == LocalVisitSyncStatus.failed
+                              ? 'Visite non confirmée · points non attribués'
+                              : 'Validation en attente de synchronisation',
                           style: TextStyle(fontSize: 13, color: text),
                         ),
                       ],
                     ),
-                  ),
-                ),
+                  );
+                }),
             ],
             if (user != null)
               ReviewSection(
@@ -528,7 +557,9 @@ class _CheckInPanelState extends ConsumerState<_CheckInPanel> {
       }
       if (permission == LocationPermission.always ||
           permission == LocationPermission.whileInUse) {
-        final position = await Geolocator.getCurrentPosition();
+        final position = await Geolocator.getCurrentPosition().timeout(
+          const Duration(seconds: 5),
+        );
         latitude = position.latitude;
         longitude = position.longitude;
         distanceMeters = Geolocator.distanceBetween(
@@ -558,7 +589,7 @@ class _CheckInPanelState extends ConsumerState<_CheckInPanel> {
       if (!mounted) return;
       setState(() => _loading = false);
       _showArrivalFeedback(
-        'Impossible de signaler votre arrivée. Vérifiez la connexion et les règles Firestore.',
+        'Une connexion Internet est nécessaire pour signaler votre présence.',
       );
     }
   }

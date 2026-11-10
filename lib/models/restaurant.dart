@@ -204,11 +204,8 @@ class Restaurant {
     this.pointsPerVisit = 350,
     this.loyaltyProgramEnabled = true,
     this.loyaltyProgramType = LoyaltyProgramType.visits,
-    // Paris (place de la Concorde) par défaut : garantit que chaque
-    // restaurant a une position affichable sur la carte même si le
-    // commerçant n'a pas encore renseigné son adresse exacte.
-    this.latitude = 48.8656,
-    this.longitude = 2.3212,
+    this.latitude = 0,
+    this.longitude = 0,
     this.logoUrl,
     this.coverImageUrl,
     this.galleryUrls = const [],
@@ -216,8 +213,8 @@ class Restaurant {
     this.postalCode = '',
     this.city = '',
     this.country = 'France',
-    this.rating = 4.8,
-    this.reviewCount = 230,
+    this.rating = 0,
+    this.reviewCount = 0,
     this.active = true,
     this.validationRadiusMeters = 75,
     this.requireLocationForCheckIn = false,
@@ -252,8 +249,8 @@ class Restaurant {
       icon:
           kRestaurantIcons[data['iconKey'] as String? ?? 'store'] ??
           Icons.storefront,
-      latitude: (data['latitude'] as num?)?.toDouble() ?? 48.8656,
-      longitude: (data['longitude'] as num?)?.toDouble() ?? 2.3212,
+      latitude: (data['latitude'] as num?)?.toDouble() ?? 0,
+      longitude: (data['longitude'] as num?)?.toDouble() ?? 0,
       logoUrl: data['logoUrl'] as String?,
       coverImageUrl: data['coverImageUrl'] as String?,
       galleryUrls:
@@ -265,8 +262,8 @@ class Restaurant {
       postalCode: data['postalCode'] as String? ?? '',
       city: data['city'] as String? ?? '',
       country: data['country'] as String? ?? 'France',
-      rating: (data['rating'] as num?)?.toDouble() ?? 4.8,
-      reviewCount: (data['reviewCount'] as num?)?.toInt() ?? 230,
+      rating: (data['rating'] as num?)?.toDouble() ?? 0,
+      reviewCount: (data['reviewCount'] as num?)?.toInt() ?? 0,
       active: data['active'] as bool? ?? true,
       validationRadiusMeters:
           (data['validationRadiusMeters'] as num?)?.toDouble() ?? 75,

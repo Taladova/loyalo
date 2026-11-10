@@ -73,7 +73,8 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
         );
         return;
       }
-      repo.startListeningForMerchant(restaurantId);
+      await repo.stopListening();
+      repo.startListeningForMerchant(restaurantId, ownerUid: user.uid);
       ref.read(currentMerchantRestaurantIdProvider.notifier).state =
           restaurantId;
       AnalyticsService.logMerchantLogin();

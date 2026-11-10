@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Loyalo Pilot iOS (iPhone 16e)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "B993E489-8956-4C0D-B8A9-D3DE0C4913E8",
+      "toolArgs": [
+        "--flavor",
+        "pilot",
+        "--dart-define-from-file=config/firebase/pilot.dart-defines.json"
+      ]
+    },
+    {
+      "name": "Loyalo Pilot Android",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "android",
+      "toolArgs": [
+        "--flavor",
+        "pilot",
+        "--dart-define-from-file=config/firebase/pilot.dart-defines.json"
+      ]
+    }
+  ]
+}

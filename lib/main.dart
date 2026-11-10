@@ -5,13 +5,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
-import 'firebase_options.dart';
+import 'core/firebase/firebase_emulator_config.dart';
+import 'core/firebase/firebase_environment.dart';
 import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await NotificationService().initializeAppHandlers();
+  final firebaseEnvironment = FirebaseEnvironmentConfig.fromCompileTime();
+  final firebaseApp = await Firebase.initializeApp(
+    options: firebaseEnvironment.options,
+  );
+  firebaseEnvironment.ensureInitializedProject(firebaseApp.options.projectId);
+  await FirebaseEmulatorConfig.connectIfEnabled();
+  if (!firebaseEnvironment.usesEmulators) {
+    await NotificationService().initializeAppHandlers();
+  }
 
   // Si Crashlytics lui-même échoue à enregistrer une erreur (ex: plugin
   // natif pas encore lié après un ajout de dépendance), il ne faut surtout

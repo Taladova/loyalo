@@ -19,7 +19,7 @@ class ClientStatisticsScreen extends ConsumerWidget {
     final now = DateTime.now();
     final monthStart = DateTime(now.year, now.month);
     final previousMonthStart = DateTime(now.year, now.month - 1);
-    final visits = repo.visitsForUser(user.id);
+    final visits = repo.confirmedVisitsForUser(user.id);
     final visitsThisMonth = visits.where((v) {
       return !v.timestamp.isBefore(monthStart);
     }).toList();
@@ -169,7 +169,7 @@ class ClientStatisticsScreen extends ConsumerWidget {
       final month = DateTime(start.year, start.month + index);
       final nextMonth = DateTime(month.year, month.month + 1);
       final points = repo
-          .visitsForUser(userId)
+          .confirmedVisitsForUser(userId)
           .where((visit) {
             return !visit.timestamp.isBefore(month) &&
                 visit.timestamp.isBefore(nextMonth);

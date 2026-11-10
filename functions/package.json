@@ -2,11 +2,19 @@
   "name": "loyalo-functions",
   "private": true,
   "engines": {
-    "node": "20"
+    "node": "24"
   },
   "main": "index.js",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test:emulator": "node --test --test-concurrency=1 test/emulator/*.test.js",
+    "lint": "node --check index.js && node --check src/approve_check_in_secure.js && node --check src/reject_check_in_secure.js"
+  },
   "dependencies": {
     "firebase-admin": "^12.7.0",
     "firebase-functions": "^6.1.2"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1"
   }
 }

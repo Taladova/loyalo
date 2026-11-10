@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/database/tables/local_visits.dart';
 import '../../models/reward.dart';
 import '../../providers/app_providers.dart';
+import '../../services/auth_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/exclusive_offer_card.dart';
 import '../../widgets/loyalo_ui.dart';
@@ -11,6 +13,7 @@ import '../../widgets/reward_card.dart';
 import '../../widgets/reward_unlocked_dialog.dart';
 import '../../widgets/section_header.dart';
 import '../notifications_screen.dart';
+import '../welcome_screen.dart';
 import 'client_visit_history_screen.dart';
 import 'referral_screen.dart';
 import 'rewards_screen.dart';
@@ -25,6 +28,16 @@ class ClientDashboardScreen extends ConsumerStatefulWidget {
 
 class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
   Set<String>? _knownRewardIds;
+
+  Future<void> _logout(BuildContext context, WidgetRef ref) async {
+    await ref.read(loyaltyRepositoryProvider).stopListening();
+    await AuthService().signOut();
+    if (!context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+      (route) => false,
+    );
+  }
 
   void _checkForNewRewards(List<RewardItem> availableRewards) {
     final ids = availableRewards.map((r) => r.id).toSet();
@@ -68,7 +81,16 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     if (restaurants.isEmpty) {
       final hasError = repo.restaurantsLoadError != null;
       return Scaffold(
-        appBar: AppBar(title: const Text('Accueil')),
+        appBar: AppBar(
+          title: const Text('Accueil'),
+          actions: [
+            IconButton(
+              onPressed: () => _logout(context, ref),
+              icon: const Icon(Icons.logout),
+              tooltip: 'Déconnexion',
+            ),
+          ],
+        ),
         body: SafeArea(
           child: Center(
             child: Padding(
@@ -98,11 +120,19 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                   const SizedBox(height: 8),
                   Text(
                     hasError
-                        ? 'Vérifiez votre connexion et les règles Firebase, puis relancez l’application.'
-                        : 'Les établissements actifs apparaîtront ici dès leur publication.',
+                        ? 'Vérifiez votre connexion, puis réessayez.'
+                        : 'Aucun établissement partenaire disponible pour le moment. Revenez bientôt découvrir les commerces qui rejoignent Loyalo.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppTheme.mutedOf(context)),
                   ),
+                  if (hasError) ...[
+                    const SizedBox(height: 18),
+                    FilledButton.icon(
+                      onPressed: repo.retryRestaurants,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Réessayer'),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -146,6 +176,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const NotificationsScreen()),
             ),
+          ),
+          IconButton(
+            onPressed: () => _logout(context, ref),
+            icon: const Icon(Icons.logout),
+            tooltip: 'Déconnexion',
           ),
         ],
       ),
@@ -462,6 +497,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                     )
                   : Column(
                       children: visits.map((visit) {
+                        final syncStatus = repo.visitSyncStatus(visit.id);
+                        final confirmed =
+                            syncStatus == LocalVisitSyncStatus.synced;
                         final restaurant = repo.restaurantByIdOrNull(
                           visit.restaurantId,
                         );
@@ -486,9 +524,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                             style: TextStyle(color: muted, fontSize: 11),
                           ),
                           trailing: Text(
-                            '+${restaurant?.pointsPerVisit ?? 0} pts',
-                            style: const TextStyle(
-                              color: AppColors.teal,
+                            confirmed
+                                ? '+${restaurant?.pointsPerVisit ?? 0} pts'
+                                : syncStatus == LocalVisitSyncStatus.failed
+                                ? 'Non attribués'
+                                : 'En attente',
+                            style: TextStyle(
+                              color: confirmed ? AppColors.teal : muted,
                               fontWeight: FontWeight.w800,
                               fontSize: 12,
                             ),

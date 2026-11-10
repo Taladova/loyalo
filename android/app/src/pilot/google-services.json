@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "1095968052802",
-    "project_id": "loyalo-app",
-    "storage_bucket": "loyalo-app.firebasestorage.app"
+    "project_number": "974504708310",
+    "project_id": "loyalo-pilot",
+    "storage_bucket": "loyalo-pilot.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1095968052802:android:5717ec5129e7bf765c7fdb",
+        "mobilesdk_app_id": "1:974504708310:android:b1a7caa308984db8bf2177",
         "android_client_info": {
-          "package_name": "com.loyalo.loyalo"
+          "package_name": "com.loyalo.loyalo.pilot"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAVIDrAqGiEeBmwmaw4L1zYSX0MlityHdM"
+          "current_key": "AIzaSyDIsyUBKDy_80udaf0bkXO_WIRWGk2phKg"
         }
       ],
       "services": {

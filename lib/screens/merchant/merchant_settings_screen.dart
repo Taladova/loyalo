@@ -61,7 +61,7 @@ class _MerchantSettingsScreenState
                 final uid = AuthService().currentUser!.uid;
                 await repo.unlinkMerchant(uid);
                 await AuthService().deleteAccount();
-                repo.stopListening();
+                await repo.stopListening();
                 if (!context.mounted) return;
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const WelcomeScreen()),

@@ -74,7 +74,7 @@ class _MerchantSignupScreenState extends ConsumerState<MerchantSignupScreen> {
         email: email,
       );
       await repo.linkMerchantToRestaurant(user.uid, restaurantId);
-      repo.startListeningForMerchant(restaurantId);
+      repo.startListeningForMerchant(restaurantId, ownerUid: user.uid);
       ref.read(currentMerchantRestaurantIdProvider.notifier).state =
           restaurantId;
       AnalyticsService.logMerchantSignUp();

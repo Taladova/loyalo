@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:loyalo/core/database/app_database.dart';
 import 'package:loyalo/models/check_in_request.dart';
 import 'package:loyalo/models/referral.dart';
 import 'package:loyalo/models/restaurant.dart';
@@ -11,12 +13,17 @@ import 'package:loyalo/services/notification_service.dart';
 void main() {
   group('LoyaltyRepository', () {
     late FakeFirebaseFirestore firestore;
+    late AppDatabase database;
     late LoyaltyRepository repo;
     const userId = 'user-1';
     const restaurantId = 'r1'; // seuil = 10 passages
 
     Future<LoyaltyRepository> buildRepo({DateTime Function()? clock}) async {
-      final r = LoyaltyRepository(firestore: firestore, clock: clock);
+      final r = LoyaltyRepository(
+        firestore: firestore,
+        database: database,
+        clock: clock,
+      );
       r.startListening();
       await Future.delayed(Duration.zero);
       return r;
@@ -24,6 +31,7 @@ void main() {
 
     setUp(() async {
       firestore = FakeFirebaseFirestore();
+      database = AppDatabase.forTesting(NativeDatabase.memory());
       await firestore.collection('restaurants').doc('r1').set({
         'name': 'Le Bistrot Parisien',
         'cuisine': 'Cuisine française',
@@ -59,6 +67,91 @@ void main() {
         'phone': '—',
       });
       repo = await buildRepo();
+    });
+
+    tearDown(() async {
+      await repo.stopListening();
+      await database.close();
+    });
+
+    test(
+      'une collection restaurants vide reste vide sans écriture automatique',
+      () async {
+        await firestore.collection('restaurants').doc('r1').delete();
+        await firestore.collection('restaurants').doc('r2').delete();
+        await Future.delayed(Duration.zero);
+
+        expect(repo.restaurants, isEmpty);
+        expect((await firestore.collection('restaurants').get()).docs, isEmpty);
+      },
+    );
+
+    test('un retry sur une collection vide ne crée aucune fixture', () async {
+      await firestore.collection('restaurants').doc('r1').delete();
+      await firestore.collection('restaurants').doc('r2').delete();
+      await Future.delayed(Duration.zero);
+
+      await repo.retryRestaurants();
+      await Future.delayed(Duration.zero);
+
+      expect(repo.restaurants, isEmpty);
+      expect((await firestore.collection('restaurants').get()).docs, isEmpty);
+    });
+
+    test(
+      'un restaurant réel apparaît après reconnexion sans fallback',
+      () async {
+        await firestore.collection('restaurants').doc('r1').delete();
+        await firestore.collection('restaurants').doc('r2').delete();
+        await Future.delayed(Duration.zero);
+        expect(repo.restaurants, isEmpty);
+
+        await repo.retryRestaurants();
+        await firestore.collection('restaurants').doc('real-after-retry').set({
+          'name': 'Partenaire réel',
+          'cuisine': 'Restaurant',
+          'distanceKm': 1,
+          'rewardThreshold': 10,
+          'rewardLabel': 'Récompense réelle',
+          'iconKey': 'restaurant',
+        });
+        await Future.delayed(Duration.zero);
+
+        expect(repo.restaurants, hasLength(1));
+        expect(repo.restaurants.single.id, 'real-after-retry');
+      },
+    );
+
+    test('les restaurants Firestore réels sont les seuls exposés', () {
+      expect(repo.restaurants.map((restaurant) => restaurant.id).toSet(), {
+        'r1',
+        'r2',
+      });
+      expect(
+        repo.restaurants.any((restaurant) => restaurant.id.startsWith('demo-')),
+        isFalse,
+      );
+    });
+
+    test('les champs absents ne produisent aucune donnée fictive', () async {
+      await firestore.collection('restaurants').doc('minimal').set({
+        'name': 'Commerce réel minimal',
+        'cuisine': 'Autre',
+        'distanceKm': 0,
+        'rewardThreshold': 10,
+        'rewardLabel': '',
+        'iconKey': 'store',
+      });
+      await Future.delayed(Duration.zero);
+
+      final restaurant = repo.restaurantById('minimal');
+      expect(restaurant.address, isNull);
+      expect(restaurant.latitude, 0);
+      expect(restaurant.longitude, 0);
+      expect(restaurant.rating, 0);
+      expect(restaurant.reviewCount, 0);
+      expect(restaurant.logoUrl, isNull);
+      expect(restaurant.coverImageUrl, isNull);
     });
 
     test('un premier passage est validé et compté', () async {
@@ -1058,7 +1151,7 @@ void main() {
     });
 
     test(
-      'la première visite validée récompense le parrain une seule fois',
+      'le client Flutter ne récompense jamais directement le parrain',
       () async {
         var day = DateTime(2026, 1, 10, 10);
         final referralRepo = await buildRepo(clock: () => day);
@@ -1084,17 +1177,17 @@ void main() {
         await Future.delayed(Duration.zero);
 
         final referral = referralRepo.referralsFor('referrer-1').single;
-        expect(referral.status, ReferralStatus.rewarded);
-        expect(referral.restaurantId, restaurantId);
-        expect(referral.pointsEarned, 500);
-        expect(referralRepo.totalPoints('referrer-1'), 500);
+        expect(referral.status, ReferralStatus.pending);
+        expect(referral.restaurantId, isNull);
+        expect(referral.pointsEarned, 0);
+        expect(referralRepo.totalPoints('referrer-1'), 0);
 
         final notifications = await firestore.collection('notifications').get();
         expect(
           notifications.docs
               .where((doc) => doc.data()['type'] == 'referral_rewarded')
               .length,
-          1,
+          0,
         );
       },
     );
@@ -1160,10 +1253,10 @@ void main() {
         'r2',
       });
       expect(
-        referrals.every((r) => r.status == ReferralStatus.rewarded),
+        referrals.every((r) => r.status == ReferralStatus.pending),
         isTrue,
       );
-      expect(referralRepo.totalPoints('referrer-1'), 1000);
+      expect(referralRepo.totalPoints('referrer-1'), 0);
     });
 
     test(
@@ -1325,7 +1418,10 @@ void main() {
         'isRead': false,
         'read': false,
       });
-      final clientRepo = LoyaltyRepository(firestore: firestore);
+      final clientRepo = LoyaltyRepository(
+        firestore: firestore,
+        database: database,
+      );
       clientRepo.startListeningForClient(userId);
       await Future.delayed(Duration.zero);
 
@@ -1366,7 +1462,10 @@ void main() {
           'createdAt': Timestamp.fromDate(DateTime(2026, 1, 10, 10)),
           'isRead': false,
         });
-        final clientRepo = LoyaltyRepository(firestore: firestore);
+        final clientRepo = LoyaltyRepository(
+          firestore: firestore,
+          database: database,
+        );
         clientRepo.startListeningForClient(userId);
         await Future.delayed(Duration.zero);
 

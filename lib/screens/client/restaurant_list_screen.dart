@@ -218,6 +218,18 @@ class _RestaurantListScreenState extends ConsumerState<RestaurantListScreen> {
                   .where('userId', isEqualTo: user.id)
                   .snapshots(),
               builder: (context, snapshot) {
+                if (repo.restaurantsLoading && repo.restaurants.isEmpty) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (repo.restaurantsLoadError != null) {
+                  return _SearchMessage(
+                    icon: Icons.cloud_off_outlined,
+                    title: 'Impossible de charger les établissements.',
+                    subtitle: 'Vérifiez votre connexion, puis réessayez.',
+                    actionLabel: 'Réessayer',
+                    onAction: repo.retryRestaurants,
+                  );
+                }
                 if (snapshot.hasError) {
                   return const _SearchMessage(
                     icon: Icons.error_outline,
@@ -240,14 +252,19 @@ class _RestaurantListScreenState extends ConsumerState<RestaurantListScreen> {
                   userLongitude: _position?.longitude,
                 );
 
-                if (repo.restaurants.isEmpty && !snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
                 if (results.isEmpty) {
-                  return const _SearchMessage(
+                  final hasSearch =
+                      _debouncedQuery.trim().isNotEmpty ||
+                      _category != null ||
+                      _filter != RestaurantPrimaryFilter.all;
+                  return _SearchMessage(
                     icon: Icons.search_off_outlined,
-                    title: 'Aucun commerce trouvé.',
-                    subtitle: 'Essayez une autre recherche ou catégorie.',
+                    title: hasSearch
+                        ? 'Aucun commerce trouvé.'
+                        : 'Aucun établissement partenaire disponible pour le moment.',
+                    subtitle: hasSearch
+                        ? 'Essayez une autre recherche ou catégorie.'
+                        : 'Revenez bientôt découvrir les commerces qui rejoignent Loyalo.',
                   );
                 }
 
@@ -575,11 +592,15 @@ class _SearchMessage extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   const _SearchMessage({
     required this.icon,
     required this.title,
     required this.subtitle,
+    this.actionLabel,
+    this.onAction,
   });
 
   @override
@@ -601,6 +622,14 @@ class _SearchMessage extends StatelessWidget {
                 fontSize: 16,
               ),
             ),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.refresh),
+                label: Text(actionLabel!),
+              ),
+            ],
             const SizedBox(height: 6),
             Text(
               subtitle,
