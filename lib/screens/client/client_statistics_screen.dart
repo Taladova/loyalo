@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../models/reward.dart';
 import '../../providers/app_providers.dart';
 import '../../services/loyalty_repository.dart';
@@ -47,7 +48,8 @@ class ClientStatisticsScreen extends ConsumerWidget {
     final muted = AppTheme.mutedOf(context);
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: loyaloPageAppBar(
+        context,
         title: const Text('Mes statistiques'),
         actions: const [
           Padding(

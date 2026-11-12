@@ -185,6 +185,9 @@ class LoyaltyRepository extends ChangeNotifier {
   bool _restaurantsLoading = false;
   Object? _restaurantsLoadError;
   Object? _checkInsLoadError;
+  bool _merchantClientsLoading = false;
+  Object? _merchantClientsLoadError;
+  int _merchantClientsReadVersion = 0;
   final List<StreamSubscription> _subscriptions = [];
 
   List<Restaurant> _restaurants = [];
@@ -198,6 +201,10 @@ class LoyaltyRepository extends ChangeNotifier {
   List<LoyaloNotification> _notifications = [];
 
   Object? get checkInsLoadError => _checkInsLoadError;
+
+  /// État de lecture de l'annuaire autorisé de la session commerçant.
+  bool get merchantClientsLoading => _merchantClientsLoading;
+  Object? get merchantClientsLoadError => _merchantClientsLoadError;
 
   /// Démarre la synchronisation avec Firestore. À appeler une fois
   /// qu'un utilisateur (client ou commerçant) est authentifié, puisque
@@ -243,6 +250,9 @@ class LoyaltyRepository extends ChangeNotifier {
     _restaurantsLoading = true;
     _restaurantsLoadError = null;
     _checkInsLoadError = null;
+    _merchantClientsReadVersion++;
+    _merchantClientsLoading = merchantRestaurantId != null;
+    _merchantClientsLoadError = null;
 
     if (merchantRestaurantId != null) {
       _subscriptions.add(
@@ -298,8 +308,9 @@ class LoyaltyRepository extends ChangeNotifier {
           .listen((_) async {
             if (merchantRestaurantId != null) {
               await _refreshMerchantUsers(merchantRestaurantId);
+            } else {
+              notifyListeners();
             }
-            notifyListeners();
           }, onError: (_) {}),
     );
 
@@ -357,8 +368,9 @@ class LoyaltyRepository extends ChangeNotifier {
             _checkInsLoadError = _checkInRepository.loadError;
             if (merchantRestaurantId != null) {
               await _refreshMerchantUsers(merchantRestaurantId);
+            } else {
+              notifyListeners();
             }
-            notifyListeners();
           }, onError: _handleCheckInsError),
     );
 
@@ -460,6 +472,9 @@ class LoyaltyRepository extends ChangeNotifier {
   }
 
   Future<void> _refreshMerchantUsers(String restaurantId) async {
+    final version = ++_merchantClientsReadVersion;
+    _merchantClientsLoading = true;
+    _merchantClientsLoadError = null;
     final userIds = <String>{
       for (final visit in _visits.where((v) => v.restaurantId == restaurantId))
         visit.userId,
@@ -470,22 +485,42 @@ class LoyaltyRepository extends ChangeNotifier {
     };
     if (userIds.isEmpty) {
       _users = [];
+      _merchantClientsLoading = false;
+      notifyListeners();
       return;
     }
-    final docs = await Future.wait(
-      userIds.map((id) async {
-        try {
-          return await _db.collection('users').doc(id).get();
-        } on FirebaseException {
-          return null;
-        }
-      }),
-    );
-    _users = docs
-        .whereType<DocumentSnapshot<Map<String, dynamic>>>()
-        .where((doc) => doc.exists)
-        .map(_UserDoc.fromFirestore)
-        .toList();
+    notifyListeners();
+    Object? readError;
+    try {
+      final docs = await Future.wait(
+        userIds.map((id) async {
+          try {
+            return await _db.collection('users').doc(id).get();
+          } on FirebaseException catch (error) {
+            readError ??= error;
+            return null;
+          }
+        }),
+      );
+      // Une lecture terminée après un autre chargement ou une déconnexion
+      // ne doit pas publier un annuaire et un état de lecture obsolètes.
+      if (version != _merchantClientsReadVersion) return;
+      _users = docs
+          .whereType<DocumentSnapshot<Map<String, dynamic>>>()
+          .where((doc) => doc.exists)
+          .map(_UserDoc.fromFirestore)
+          .toList();
+      _merchantClientsLoadError = readError;
+    } catch (error) {
+      if (version == _merchantClientsReadVersion) {
+        _merchantClientsLoadError = error;
+      }
+    } finally {
+      if (version == _merchantClientsReadVersion) {
+        _merchantClientsLoading = false;
+        notifyListeners();
+      }
+    }
   }
 
   Future<void> _rememberRestaurantCustomer({
@@ -600,6 +635,9 @@ class LoyaltyRepository extends ChangeNotifier {
     );
     _subscriptions.clear();
     _notifications = [];
+    _merchantClientsReadVersion++;
+    _merchantClientsLoading = false;
+    _merchantClientsLoadError = null;
     _restaurantsLoading = false;
     _restaurantsLoadError = null;
     _checkInsLoadError = null;
@@ -608,6 +646,7 @@ class LoyaltyRepository extends ChangeNotifier {
 
   @override
   void dispose() {
+    _merchantClientsReadVersion++;
     unawaited(_visitRepository.stopAutomaticSync());
     for (final s in _subscriptions) {
       s.cancel();
@@ -851,6 +890,181 @@ class LoyaltyRepository extends ChangeNotifier {
     );
     await docRef.set(restaurant.toMap());
     return docRef.id;
+  }
+
+  /// Reprend une liaison existante ou crée un brouillon non publié.
+  /// Le document commerçant est lisible même avant sa création. Sa lecture
+  /// transactionnelle protège une création concurrente contre une reprise
+  /// tardive qui écraserait un commerce déjà lié et configuré.
+  Future<Restaurant> loadOrCreateMerchantDraft({
+    required String ownerId,
+    required String name,
+    required String cuisine,
+    required String email,
+  }) async {
+    if (ownerId.isEmpty || name.trim().isEmpty || email.trim().isEmpty) {
+      throw ArgumentError('Nom, email et propriétaire obligatoires.');
+    }
+    final merchantRef = _db.collection('merchants').doc(ownerId);
+    final existingLink = await merchantRef.get();
+    final linkedId = existingLink.data()?['restaurantId'] as String?;
+    if (existingLink.exists && (linkedId == null || linkedId.isEmpty)) {
+      throw StateError('La liaison de votre commerce est incomplète.');
+    }
+
+    String? candidateId = linkedId;
+    if (candidateId == null) {
+      final owned = await _db
+          .collection('restaurants')
+          .where('ownerId', isEqualTo: ownerId)
+          .limit(2)
+          .get();
+      if (owned.docs.length > 1) {
+        throw StateError(
+          'Plusieurs commerces sont associés à ce compte. Connectez-vous à votre espace.',
+        );
+      }
+      candidateId = owned.docs.isEmpty
+          ? 'merchant_$ownerId'
+          : owned.docs.single.id;
+      final existingDraft = owned.docs.isNotEmpty;
+      final candidateRef = _db.collection('restaurants').doc(candidateId);
+      candidateId = await _db.runTransaction<String>((transaction) async {
+        final link = await transaction.get(merchantRef);
+        if (link.exists) {
+          final id = link.data()?['restaurantId'] as String?;
+          if (id == null || id.isEmpty) {
+            throw StateError('La liaison de votre commerce est incomplète.');
+          }
+          return id;
+        }
+        if (!existingDraft) {
+          final draft = Restaurant(
+            id: candidateRef.id,
+            ownerId: ownerId,
+            name: name.trim(),
+            cuisine: cuisine,
+            category: cuisine,
+            email: email.trim(),
+            distanceKm: 0,
+            rewardThreshold: 10,
+            rewardLabel: '',
+            icon: Icons.storefront,
+            loyaltyProgramEnabled: false,
+            active: false,
+            status: RestaurantStatus.draft,
+          );
+          transaction.set(candidateRef, draft.toMap());
+        }
+        return candidateRef.id;
+      });
+    }
+
+    // Les règles utilisent get(), et non getAfter() : le commerce doit être
+    // enregistré avant cette liaison. Une reprise réutilise le même document.
+    final resolvedId = await _db.runTransaction<String>((transaction) async {
+      final link = await transaction.get(merchantRef);
+      if (link.exists) {
+        final id = link.data()?['restaurantId'] as String?;
+        if (id == null || id.isEmpty) {
+          throw StateError('La liaison de votre commerce est incomplète.');
+        }
+        return id;
+      }
+      final restaurantRef = _db.collection('restaurants').doc(candidateId);
+      final restaurant = await transaction.get(restaurantRef);
+      if (!restaurant.exists || restaurant.data()?['ownerId'] != ownerId) {
+        throw StateError('Ce commerce appartient à un autre compte.');
+      }
+      transaction.set(merchantRef, {'restaurantId': restaurantRef.id});
+      return restaurantRef.id;
+    });
+    final snapshot = await _db.collection('restaurants').doc(resolvedId).get();
+    if (!snapshot.exists || snapshot.data()?['ownerId'] != ownerId) {
+      throw StateError('Ce commerce appartient à un autre compte.');
+    }
+    final restaurant = Restaurant.fromFirestore(snapshot);
+    _cacheRestaurant(restaurant);
+    return restaurant;
+  }
+
+  /// Publie seulement un brouillon appartenant au compte, avec sa configuration
+  /// complète dans la même écriture. Une reprise ne reconfigure pas un commerce
+  /// qui a déjà été publié.
+  Future<Restaurant> completeMerchantOnboarding({
+    required String restaurantId,
+    required String ownerId,
+    required LoyaltyProgramType type,
+    required int rewardThreshold,
+    required int pointsPerVisit,
+    required String rewardLabel,
+    String rewardDescription = '',
+    required VisitValidationPolicy validationPolicy,
+    required int minimumHoursBetweenVisits,
+  }) async {
+    if (rewardThreshold < 1 ||
+        pointsPerVisit < 1 ||
+        rewardLabel.trim().isEmpty ||
+        minimumHoursBetweenVisits < 1) {
+      throw ArgumentError('Renseignez un objectif positif et une récompense.');
+    }
+    final doc = _db.collection('restaurants').doc(restaurantId);
+    final updated = await _db.runTransaction<Restaurant>((transaction) async {
+      final snapshot = await transaction.get(doc);
+      if (!snapshot.exists || snapshot.data()?['ownerId'] != ownerId) {
+        throw StateError('Ce commerce appartient à un autre compte.');
+      }
+      final current = Restaurant.fromFirestore(snapshot);
+      if (!current.needsLoyaltySetup) {
+        if (current.active &&
+            current.status == RestaurantStatus.active &&
+            current.loyaltyProgramEnabled &&
+            current.rewardThreshold > 0 &&
+            current.rewardLabel.trim().isNotEmpty) {
+          return current;
+        }
+        throw StateError(
+          'Ce commerce ne peut pas être publié par ce parcours.',
+        );
+      }
+      final next = current.copyWith(
+        loyaltyProgramEnabled: true,
+        active: true,
+        status: RestaurantStatus.active,
+        loyaltyProgramType: type,
+        rewardThreshold: rewardThreshold,
+        pointsPerVisit: pointsPerVisit,
+        rewardLabel: rewardLabel.trim(),
+        rewardDescription: rewardDescription.trim(),
+        validationPolicy: validationPolicy,
+        minimumHoursBetweenVisits: minimumHoursBetweenVisits,
+      );
+      transaction.update(doc, {
+        'loyaltyProgramEnabled': true,
+        'active': true,
+        'status': RestaurantStatus.active.firestoreValue,
+        'loyaltyProgramType': type.firestoreValue,
+        'rewardThreshold': rewardThreshold,
+        'pointsPerVisit': pointsPerVisit,
+        'rewardLabel': next.rewardLabel,
+        'rewardDescription': next.rewardDescription,
+        'validationPolicy': validationPolicy.firestoreValue,
+        'minimumHoursBetweenVisits': minimumHoursBetweenVisits,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return next;
+    });
+    _cacheRestaurant(updated);
+    return updated;
+  }
+
+  void _cacheRestaurant(Restaurant restaurant) {
+    _restaurants = [
+      for (final current in _restaurants)
+        if (current.id != restaurant.id) current,
+      restaurant,
+    ];
+    notifyListeners();
   }
 
   Future<void> updateRestaurantProfile({

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../widgets/loyalo_logo.dart';
+import '../../widgets/loyalo_page_header.dart';
 import '../../core/database/tables/local_visits.dart';
 import '../../models/reward.dart';
 import '../../providers/app_providers.dart';
@@ -81,7 +83,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     if (restaurants.isEmpty) {
       final hasError = repo.restaurantsLoadError != null;
       return Scaffold(
-        appBar: AppBar(
+        appBar: loyaloPageAppBar(
+          context,
+          leading: Navigator.of(context).canPop()
+              ? null
+              : const LoyaloDashboardMark(),
           title: const Text('Accueil'),
           actions: [
             IconButton(
@@ -168,7 +174,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     _checkForNewRewards(rewards);
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: loyaloPageAppBar(
+        context,
+        leading: Navigator.of(context).canPop()
+            ? null
+            : const LoyaloDashboardMark(),
         title: const Text('Accueil'),
         actions: [
           _NotificationAction(

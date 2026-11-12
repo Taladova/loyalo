@@ -6,8 +6,7 @@ import '../../providers/app_providers.dart';
 import '../../services/analytics_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/remember_me_service.dart';
-import '../../theme/app_theme.dart';
-import '../../widgets/loyalo_logo.dart';
+import '../../widgets/loyalo_auth_ui.dart';
 import 'merchant_establishment_screen.dart';
 import 'merchant_root_screen.dart';
 import 'merchant_signup_screen.dart';
@@ -21,18 +20,29 @@ class MerchantLoginScreen extends ConsumerStatefulWidget {
 }
 
 class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _passwordFocusNode = FocusNode();
   final _authService = AuthService();
   final _rememberMeService = RememberMeService();
   bool _loading = false;
   bool _rememberMe = true;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
     _prefill();
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _passwordFocusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _prefill() async {
@@ -44,7 +54,22 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
     });
   }
 
+  String? _validateEmail(String? value) {
+    final email = value?.trim() ?? '';
+    if (email.isEmpty) return 'Renseignez votre adresse email.';
+    final valid = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email);
+    return valid ? null : 'Saisissez une adresse email valide.';
+  }
+
+  String? _validatePassword(String? value) {
+    if (value == null || value.isEmpty) return 'Renseignez votre mot de passe.';
+    return null;
+  }
+
   Future<void> _login() async {
+    FocusScope.of(context).unfocus();
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     if (email.isEmpty || password.isEmpty) {
@@ -134,97 +159,38 @@ class _MerchantLoginScreenState extends ConsumerState<MerchantLoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
-      body: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Center(
-                child: LoyaloWordmark(markSize: 84, showTagline: false),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Connexion commerçant',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 28),
-              TextField(
-                controller: _emailController,
-                decoration: const InputDecoration(labelText: 'Email'),
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: _passwordController,
-                decoration: const InputDecoration(labelText: 'Mot de passe'),
-                obscureText: true,
-                onSubmitted: (_) => _login(),
-              ),
-              CheckboxListTile(
-                value: _rememberMe,
-                onChanged: (v) => setState(() => _rememberMe = v ?? true),
-                controlAffinity: ListTileControlAffinity.leading,
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                activeColor: AppColors.teal,
-                title: const Text(
-                  'Se souvenir de moi',
-                  style: TextStyle(fontSize: 13),
-                ),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: _forgotPassword,
-                  child: const Text(
-                    'Mot de passe oublié ?',
-                    style: TextStyle(color: AppColors.textGray),
-                  ),
-                ),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  _error!,
-                  style: const TextStyle(
-                    color: AppColors.danger,
-                    fontSize: 12.5,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 10),
-              ElevatedButton(
-                onPressed: _loading ? null : _login,
-                child: _loading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.4,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text('Se connecter'),
-              ),
-              const SizedBox(height: 14),
-              TextButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const MerchantSignupScreen(),
-                  ),
-                ),
-                child: const Text('Créer un compte'),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return LoyaloAuthLayout(
+      title: 'Connexion commerçant',
+      description:
+          'Accédez à votre espace professionnel Loyalo et fidélisez vos clients.',
+      titleFontSize: 24,
+      createAccountIcon: Icons.add_business_outlined,
+      formKey: _formKey,
+      emailKey: const Key('merchant-login-email'),
+      passwordKey: const Key('merchant-login-password'),
+      emailController: _emailController,
+      passwordController: _passwordController,
+      passwordFocusNode: _passwordFocusNode,
+      obscurePassword: _obscurePassword,
+      rememberMe: _rememberMe,
+      loading: _loading,
+      error: _error,
+      validateEmail: _validateEmail,
+      validatePassword: _validatePassword,
+      onTogglePassword: _loading
+          ? null
+          : () => setState(() => _obscurePassword = !_obscurePassword),
+      onRememberMeChanged: _loading
+          ? null
+          : (value) => setState(() => _rememberMe = value ?? true),
+      onForgotPassword: _loading ? null : _forgotPassword,
+      onLogin: _loading ? null : _login,
+      onCreateAccount: _loading
+          ? null
+          : () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MerchantSignupScreen()),
+            ),
+      onBack: _loading ? null : () => Navigator.of(context).maybePop(),
     );
   }
 }

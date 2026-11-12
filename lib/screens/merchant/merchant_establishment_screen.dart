@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../models/restaurant.dart';
 import '../../providers/app_providers.dart';
 import '../../services/auth_service.dart';
@@ -61,6 +62,7 @@ class _MerchantEstablishmentScreenState
     _initialized = true;
     final userEmail = AuthService().currentUser?.email ?? '';
     if (restaurant == null) {
+      _active = false;
       _emailController.text = userEmail;
       return;
     }
@@ -85,6 +87,7 @@ class _MerchantEstablishmentScreenState
   }
 
   Future<void> _save(Restaurant? existing) async {
+    if (_saving) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
 
@@ -96,50 +99,48 @@ class _MerchantEstablishmentScreenState
 
     try {
       if (existing == null) {
-        final restaurantId = await repo.createRestaurant(
-          ownerId: uid,
-          name: name,
-          cuisine: category,
-          rewardThreshold: 10,
-          rewardLabel: 'Récompense fidélité',
-          email: _emailController.text.trim(),
-        );
-        await repo.linkMerchantToRestaurant(uid, restaurantId);
-        final created = Restaurant(
-          id: restaurantId,
-          ownerId: uid,
-          name: name,
-          cuisine: category,
-          category: category,
-          description: _descriptionController.text.trim(),
-          phone: _phoneController.text.trim(),
-          email: _emailController.text.trim(),
-          website: _websiteController.text.trim(),
-          address: address,
-          postalCode: _postalCodeController.text.trim(),
-          city: _cityController.text.trim(),
-          country: _countryController.text.trim().isEmpty
-              ? 'France'
-              : _countryController.text.trim(),
-          distanceKm: 0,
-          rewardThreshold: 10,
-          rewardLabel: 'Récompense fidélité',
-          icon: Icons.storefront,
-          active: _active,
-          status: _active ? RestaurantStatus.active : RestaurantStatus.draft,
-          openingHours: _openingHours,
-        );
-        await repo.updateRestaurantProfile(restaurant: created, ownerId: uid);
         await repo.stopListening();
-        repo.startListeningForMerchant(
-          restaurantId,
-          ownerUid: AuthService().currentUser?.uid,
+        final draft = await repo.loadOrCreateMerchantDraft(
+          ownerId: uid,
+          name: name,
+          cuisine: category,
+          email: _emailController.text.trim().isEmpty
+              ? AuthService().currentUser?.email ?? ''
+              : _emailController.text.trim(),
         );
+        final created = draft.needsLoyaltySetup
+            ? draft.copyWith(
+                name: name,
+                cuisine: category,
+                category: category,
+                description: _descriptionController.text.trim(),
+                phone: _phoneController.text.trim(),
+                email: _emailController.text.trim().isEmpty
+                    ? draft.email
+                    : _emailController.text.trim(),
+                website: _websiteController.text.trim(),
+                address: address,
+                postalCode: _postalCodeController.text.trim(),
+                city: _cityController.text.trim(),
+                country: _countryController.text.trim().isEmpty
+                    ? 'France'
+                    : _countryController.text.trim(),
+                openingHours: _openingHours,
+              )
+            : draft;
+        if (draft.needsLoyaltySetup) {
+          await repo.updateRestaurantProfile(restaurant: created, ownerId: uid);
+        }
+        repo.startListeningForMerchant(created.id, ownerUid: uid);
         ref.read(currentMerchantRestaurantIdProvider.notifier).state =
-            restaurantId;
+            created.id;
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const MerchantRootScreen()),
+          MaterialPageRoute(
+            builder: (_) => created.needsLoyaltySetup
+                ? const RewardsManagementScreen(completeOnboarding: true)
+                : const MerchantRootScreen(),
+          ),
           (route) => false,
         );
       } else {
@@ -157,8 +158,12 @@ class _MerchantEstablishmentScreenState
           country: _countryController.text.trim().isEmpty
               ? 'France'
               : _countryController.text.trim(),
-          active: _active,
-          status: _active ? RestaurantStatus.active : RestaurantStatus.draft,
+          active: existing.needsLoyaltySetup ? false : _active,
+          status: existing.needsLoyaltySetup
+              ? RestaurantStatus.draft
+              : _active
+              ? RestaurantStatus.active
+              : RestaurantStatus.draft,
           openingHours: _openingHours,
         );
         await repo.updateRestaurantProfile(restaurant: updated, ownerId: uid);
@@ -349,7 +354,9 @@ class _MerchantEstablishmentScreenState
     final muted = AppTheme.mutedOf(context);
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: loyaloPageAppBar(
+        context,
+        actionsWidth: 96,
         title: const Text('Mon établissement'),
         actions: [
           if (restaurant != null)
@@ -546,10 +553,14 @@ class _MerchantEstablishmentScreenState
             const SizedBox(height: 18),
             SwitchListTile(
               value: _active,
-              onChanged: (value) => setState(() => _active = value),
+              onChanged: restaurant == null || restaurant.needsLoyaltySetup
+                  ? null
+                  : (value) => setState(() => _active = value),
               title: const Text('Commerce actif'),
-              subtitle: const Text(
-                'Un commerce inactif ne doit normalement pas apparaître dans la découverte publique.',
+              subtitle: Text(
+                restaurant == null || restaurant.needsLoyaltySetup
+                    ? 'Configurez votre programme de fidélité avant de publier votre commerce.'
+                    : 'Un commerce inactif ne doit normalement pas apparaître dans la découverte publique.',
               ),
               activeThumbColor: AppColors.purple,
             ),

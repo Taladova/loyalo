@@ -7,7 +7,8 @@ import '../../models/restaurant.dart';
 import '../../providers/app_providers.dart';
 import '../../services/auth_service.dart';
 import '../../services/loyalty_repository.dart';
-import '../../theme/app_theme.dart';
+import '../../widgets/loyalo_auth_ui.dart';
+import '../../widgets/loyalo_merchant_dashboard_ui.dart';
 import '../../widgets/loyalo_ui.dart';
 import '../notifications_screen.dart';
 import '../welcome_screen.dart';
@@ -54,15 +55,27 @@ class _MerchantDashboardScreenState
   @override
   Widget build(BuildContext context) {
     final repo = ref.watch(loyaltyRepositoryProvider);
-    final restaurantId = ref.watch(currentMerchantRestaurantIdProvider)!;
-    final restaurant = repo.restaurantByIdOrNull(restaurantId);
-    if (restaurant == null) {
-      return Scaffold(
-        backgroundColor: AppTheme.backgroundOf(context),
-        body: const SafeArea(
-          child: Center(
-            child: CircularProgressIndicator(color: AppColors.purple),
-          ),
+    final restaurantId = ref.watch(currentMerchantRestaurantIdProvider);
+    final restaurant = restaurantId == null
+        ? null
+        : repo.restaurantByIdOrNull(restaurantId);
+    if (restaurantId == null || restaurant == null) {
+      final hasError =
+          restaurantId != null && repo.restaurantsLoadError != null;
+      return _frame(
+        repo: repo,
+        restaurantId: restaurantId,
+        body: LoyaloDashboardStatus(
+          key: const Key('dashboard-state'),
+          loading: restaurantId != null && !hasError && repo.restaurantsLoading,
+          message: restaurantId == null
+              ? 'Votre session commerçant est indisponible. Reconnectez-vous.'
+              : hasError
+              ? 'Impossible de charger votre commerce. Réessayez.'
+              : repo.restaurantsLoading
+              ? 'Chargement de votre commerce…'
+              : 'Votre commerce est indisponible pour le moment.',
+          onRetry: hasError ? () => repo.retryRestaurants() : null,
         ),
       );
     }
@@ -110,203 +123,120 @@ class _MerchantDashboardScreenState
       monthStart,
       now,
     );
-    final background = AppTheme.backgroundOf(context);
-    final surface = AppTheme.surfaceOf(context);
-    final text = AppTheme.textOf(context);
-    final muted = AppTheme.mutedOf(context);
-    final border = AppTheme.borderOf(context);
 
-    return Scaffold(
-      backgroundColor: background,
-      appBar: AppBar(
-        backgroundColor: background,
-        foregroundColor: text,
-        title: Text('Tableau de bord', style: TextStyle(color: text)),
-        actions: [
-          _NotificationAction(
-            count: repo.unreadNotificationsForMerchant(restaurantId),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => NotificationsScreen(
-                  merchant: true,
-                  restaurantId: restaurantId,
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const MerchantSettingsScreen()),
-            ),
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Paramètres',
-          ),
-          IconButton(
-            onPressed: () => _logout(context, ref),
-            icon: const Icon(Icons.logout),
-            tooltip: 'Déconnexion',
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
+    return _frame(
+      repo: repo,
+      restaurantId: restaurantId,
+      restaurant: restaurant,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _MerchantHeader(restaurant: restaurant),
-          const SizedBox(height: 16),
-          PopupMenuButton<_DashboardPeriod>(
-            initialValue: _period,
-            onSelected: (period) => setState(() => _period = period),
-            itemBuilder: (context) => _DashboardPeriod.values
-                .map(
-                  (period) =>
-                      PopupMenuItem(value: period, child: Text(period.label)),
-                )
-                .toList(),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: border),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _period.label,
-                      style: TextStyle(
-                        color: text,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Icon(Icons.keyboard_arrow_down, color: muted, size: 18),
-                ],
+          if (repo.restaurantsLoading) ...[
+            Semantics(
+              label: 'Actualisation du commerce en cours',
+              child: const LinearProgressIndicator(
+                color: LoyaloAuthColors.purple,
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          _ClientSummaryCard(
-            totalClients: totalClients,
-            activeClients: activeClients,
-            newClientsThisMonth: newClientsThisMonth,
-          ),
-          const SizedBox(height: 12),
-          Row(
+            const SizedBox(height: 12),
+          ],
+          if (repo.restaurantsLoadError != null) ...[
+            const LoyaloAuthError(
+              message:
+                  'Actualisation du commerce impossible. Les données disponibles restent affichées.',
+            ),
+            const SizedBox(height: 12),
+          ],
+          Column(
+            key: const Key('dashboard-stats'),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: _TodayCard(
-                  color: AppColors.teal,
+              LoyaloClientSummaryCard(
+                key: const Key('dashboard-clients'),
+                totalClients: totalClients,
+                activeClients: activeClients,
+                newClientsThisMonth: newClientsThisMonth,
+              ),
+              const SizedBox(height: 12),
+              LoyaloDashboardPair(
+                first: LoyaloMetricCard(
+                  key: const Key('dashboard-visits'),
                   value: '${activity.length}',
                   label: 'Visites',
+                  icon: Icons.event_available_outlined,
                   trend: _trendLabel(activity.length, previousActivity.length),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _TodayCard(
-                  color: AppColors.purple,
+                second: LoyaloMetricCard(
+                  key: const Key('dashboard-new-clients'),
                   value: '$newClients',
                   label: 'Nouveaux clients',
+                  icon: Icons.person_add_alt_1_outlined,
                   trend: _trendLabel(newClients, previousNewClients),
                 ),
               ),
+              const SizedBox(height: 12),
+              LoyaloMetricCard(
+                key: const Key('dashboard-points'),
+                value: '$pointsGranted',
+                label: 'Points accordés',
+                icon: Icons.toll_outlined,
+                trend: _trendLabel(pointsGranted, previousPoints),
+                wide: true,
+              ),
             ],
           ),
-          const SizedBox(height: 12),
-          _WideDarkStat(
-            value: '$pointsGranted',
-            label: 'Points accordés',
-            trend: _trendLabel(pointsGranted, previousPoints),
-            icon: Icons.star_border,
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           _PendingCheckInsSection(restaurantId: restaurantId),
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
           _QuickActions(restaurantId: restaurantId),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Activité récente',
-                style: TextStyle(
-                  color: text,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const ActivityHistoryScreen(),
-                  ),
-                ),
-                child: const Text('Voir tout'),
-              ),
-            ],
+          const SizedBox(height: 20),
+          LoyaloDashboardSectionHeader(
+            'Activité récente',
+            key: const Key('dashboard-section-activity'),
+            onViewAll: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ActivityHistoryScreen()),
+            ),
           ),
+          const SizedBox(height: 10),
           if (previewActivity.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(
-                'Aucune activité pour le moment.',
-                style: TextStyle(color: muted),
+            LoyaloCard(
+              key: const Key('dashboard-empty-activity'),
+              color: Colors.white,
+              padding: const EdgeInsets.all(16),
+              child: const Row(
+                children: [
+                  ExcludeSemantics(
+                    child: Icon(
+                      Icons.calendar_today_outlined,
+                      color: LoyaloAuthColors.textSecondary,
+                      size: 24,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Aucune activité pour le moment.',
+                      style: TextStyle(
+                        color: LoyaloAuthColors.textSecondary,
+                        fontSize: 12.5,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             )
           else
             ...previewActivity.map(
-              (v) => Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: surface,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: border),
-                ),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundColor: AppColors.teal.withValues(alpha: 0.16),
-                      child: const Icon(
-                        Icons.check,
-                        color: AppColors.teal,
-                        size: 16,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            repo.nameForClient(v.userId),
-                            style: TextStyle(
-                              color: text,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                          Text(
-                            repo.isFirstVisitForRestaurant(v)
-                                ? 'Première visite · ${_relativeTime(v.timestamp)}'
-                                : 'Visite validée · ${_relativeTime(v.timestamp)}',
-                            style: TextStyle(fontSize: 11, color: muted),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Text(
-                      '+${restaurant.pointsPerVisit} pts',
-                      style: const TextStyle(
-                        color: AppColors.teal,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
+              (v) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: LoyaloRecentActivityTile(
+                  key: ValueKey('dashboard-activity-${v.id}'),
+                  name: repo.nameForClient(v.userId),
+                  detail: repo.isFirstVisitForRestaurant(v)
+                      ? 'Première visite · ${_relativeTime(v.timestamp)}'
+                      : 'Visite validée · ${_relativeTime(v.timestamp)}',
+                  points: '+${restaurant.pointsPerVisit} pts',
                 ),
               ),
             ),
@@ -314,49 +244,63 @@ class _MerchantDashboardScreenState
       ),
     );
   }
-}
 
-class _NotificationAction extends StatelessWidget {
-  final int count;
-  final VoidCallback onPressed;
-
-  const _NotificationAction({required this.count, required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      alignment: Alignment.center,
+  Widget _frame({
+    required LoyaltyRepository repo,
+    required String? restaurantId,
+    Restaurant? restaurant,
+    required Widget body,
+  }) => LoyaloAuthScaffold(
+    onBack: null,
+    showBackButton: false,
+    headerBuilder: (context, compact, veryCompact) => Column(
       children: [
-        IconButton(
-          onPressed: onPressed,
-          icon: const Icon(Icons.notifications_none),
-          tooltip: 'Notifications',
-        ),
-        if (count > 0)
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              decoration: BoxDecoration(
-                color: AppColors.danger,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              constraints: const BoxConstraints(minWidth: 17),
-              child: Text(
-                count > 9 ? '9+' : '$count',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
+        LoyaloMerchantHeader(
+          restaurant: restaurant,
+          merchantName: AuthService().currentUser?.displayName,
+          notificationCount: restaurantId == null
+              ? 0
+              : repo.unreadNotificationsForMerchant(restaurantId),
+          onNotifications: restaurant == null
+              ? null
+              : () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => NotificationsScreen(
+                      merchant: true,
+                      restaurantId: restaurantId!,
+                    ),
+                  ),
                 ),
-              ),
+          onProfile: restaurant == null
+              ? null
+              : () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const MerchantSettingsScreen(),
+                  ),
+                ),
+          onLogout: () => _logout(context, ref),
+        ),
+        if (restaurant != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+            child: LoyaloPeriodSelector<_DashboardPeriod>(
+              key: const Key('dashboard-period'),
+              value: _period,
+              label: _period.label,
+              onSelected: (period) => setState(() => _period = period),
+              items: _DashboardPeriod.values
+                  .map(
+                    (period) =>
+                        PopupMenuItem(value: period, child: Text(period.label)),
+                  )
+                  .toList(),
             ),
           ),
       ],
-    );
-  }
+    ),
+    contentBuilder: (context, compact) =>
+        LoyaloAuthSurface(compact: true, child: body),
+  );
 }
 
 String _relativeTime(DateTime date) {
@@ -365,125 +309,6 @@ String _relativeTime(DateTime date) {
   if (diff.inMinutes < 60) return 'il y a ${diff.inMinutes} min';
   if (diff.inHours < 24) return 'il y a ${diff.inHours} h';
   return DateFormat('dd/MM à HH:mm').format(date);
-}
-
-class _MerchantHeader extends StatelessWidget {
-  final Restaurant restaurant;
-
-  const _MerchantHeader({required this.restaurant});
-
-  @override
-  Widget build(BuildContext context) {
-    final text = AppTheme.textOf(context);
-    final muted = AppTheme.mutedOf(context);
-
-    return Row(
-      children: [
-        LoyaloMerchantAvatar(
-          imageUrl: restaurant.logoUrl ?? restaurant.coverImageUrl,
-          icon: restaurant.icon,
-          size: 56,
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Bonjour',
-                style: TextStyle(
-                  color: muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                restaurant.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: text,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              Text(
-                restaurant.cuisine,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: muted, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ClientSummaryCard extends StatelessWidget {
-  final int totalClients;
-  final int activeClients;
-  final int newClientsThisMonth;
-
-  const _ClientSummaryCard({
-    required this.totalClients,
-    required this.activeClients,
-    required this.newClientsThisMonth,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final text = AppTheme.textOf(context);
-    final muted = AppTheme.mutedOf(context);
-
-    return LoyaloCard(
-      padding: const EdgeInsets.all(18),
-      child: Row(
-        children: [
-          const LoyaloIconBadge(
-            icon: Icons.people_alt_outlined,
-            color: AppColors.purple,
-            size: 48,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$totalClients',
-                  style: TextStyle(
-                    color: text,
-                    fontSize: 30,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Clients',
-                  style: TextStyle(
-                    color: text,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '$activeClients actifs · $newClientsThisMonth nouveaux ce mois-ci',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _DashboardRange {
@@ -630,8 +455,6 @@ class _PendingCheckInsSectionState
   @override
   Widget build(BuildContext context) {
     final repo = ref.watch(loyaltyRepositoryProvider);
-    final text = AppTheme.textOf(context);
-    final muted = AppTheme.mutedOf(context);
 
     return StreamBuilder<List<CheckInRequest>>(
       stream: repo.watchMerchantValidationQueue(
@@ -643,12 +466,18 @@ class _PendingCheckInsSectionState
         return _PendingCheckInsCard(
           restaurantId: widget.restaurantId,
           pending: pending,
+          loading:
+              snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData &&
+              !snapshot.hasError &&
+              repo.checkInsLoadError == null,
+          unavailable:
+              snapshot.connectionState == ConnectionState.done &&
+              !snapshot.hasData,
           hasError: snapshot.hasError || repo.checkInsLoadError != null,
           processing: _processing,
           onApprove: _approve,
           onReject: _reject,
-          text: text,
-          muted: muted,
           repo: repo,
         );
       },
@@ -657,235 +486,92 @@ class _PendingCheckInsSectionState
 }
 
 class _PendingCheckInsCard extends StatelessWidget {
-  final String restaurantId;
-  final List<CheckInRequest> pending;
-  final bool hasError;
-  final Set<String> processing;
-  final ValueChanged<String> onApprove;
-  final ValueChanged<String> onReject;
-  final Color text;
-  final Color muted;
-  final LoyaltyRepository repo;
-
   const _PendingCheckInsCard({
     required this.restaurantId,
     required this.pending,
     required this.hasError,
+    required this.loading,
+    required this.unavailable,
     required this.processing,
     required this.onApprove,
     required this.onReject,
-    required this.text,
-    required this.muted,
     required this.repo,
   });
+  final String restaurantId;
+  final List<CheckInRequest> pending;
+  final bool hasError;
+  final bool loading;
+  final bool unavailable;
+  final Set<String> processing;
+  final ValueChanged<String> onApprove;
+  final ValueChanged<String> onReject;
+  final LoyaltyRepository repo;
 
   @override
   Widget build(BuildContext context) {
     final awaitingValidation = pending
         .where((request) => request.status == CheckInStatus.pending)
         .length;
-    return LoyaloCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const LoyaloIconBadge(
-                icon: Icons.flash_on,
-                color: AppColors.teal,
-                size: 44,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Loyalo Express',
-                      style: TextStyle(
-                        color: text,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    Text(
-                      hasError
-                          ? 'Lecture impossible, réessayez plus tard'
-                          : pending.isEmpty
-                          ? 'Aucun client en attente'
-                          : awaitingValidation > 0
-                          ? '$awaitingValidation client${awaitingValidation > 1 ? 's' : ''} attend${awaitingValidation > 1 ? 'ent' : ''} votre validation'
-                          : 'Validation hors ligne à finaliser',
-                      style: TextStyle(color: muted, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              if (awaitingValidation > 0)
-                TextButton(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const ValidateVisitScreen(),
-                    ),
+    return LoyaloExpressCard(
+      key: const Key('dashboard-express'),
+      loading: loading,
+      message: hasError
+          ? 'Lecture impossible, réessayez plus tard.'
+          : loading
+          ? 'Chargement des arrivées en cours…'
+          : unavailable
+          ? 'Loyalo Express est indisponible pour le moment.'
+          : pending.isEmpty
+          ? 'Aucun client en attente'
+          : awaitingValidation > 0
+          ? '$awaitingValidation client${awaitingValidation > 1 ? 's' : ''} attend${awaitingValidation > 1 ? 'ent' : ''} votre validation'
+          : 'Validation hors ligne à finaliser',
+      onViewAll: awaitingValidation > 0
+          ? () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ValidateVisitScreen()),
+            )
+          : null,
+      child: pending.isEmpty
+          ? null
+          : Column(
+              children: pending.take(4).map((request) {
+                final canAct = request.status == CheckInStatus.pending;
+                final isExpired = request.status == CheckInStatus.expired;
+                final clientName = repo.nameForClient(request.customerId);
+                final count = repo.passageCount(
+                  request.customerId,
+                  restaurantId,
+                );
+                final restaurant = repo.restaurantById(restaurantId);
+                final remaining =
+                    restaurant.rewardThreshold -
+                    (count % restaurant.rewardThreshold);
+                final arrivedAgo = DateTime.now()
+                    .difference(request.requestedAt)
+                    .inMinutes;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: LoyaloExpressRequestTile(
+                    key: ValueKey('dashboard-request-${request.id}'),
+                    name: clientName,
+                    canAct: canAct,
+                    detail: !canAct
+                        ? isExpired
+                              ? 'Arrivée expirée · points non attribués'
+                              : request.status == CheckInStatus.rejected
+                              ? 'Refus en attente de synchronisation'
+                              : 'Validation en attente de synchronisation'
+                        : remaining == 1
+                        ? '$count/${restaurant.rewardThreshold} · proche d\'une récompense'
+                        : '$count/${restaurant.rewardThreshold} visites · arrivé il y a ${arrivedAgo.clamp(0, 10)} min',
+                    badge: canAct ? _loyaltyBadgeFor(count) : null,
+                    processing: processing.contains(request.id),
+                    onApprove: () => onApprove(request.id),
+                    onReject: () => onReject(request.id),
                   ),
-                  child: const Text('Voir'),
-                ),
-            ],
-          ),
-          if (pending.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            ...pending.take(4).map((request) {
-              final canAct = request.status == CheckInStatus.pending;
-              final isExpired = request.status == CheckInStatus.expired;
-              final clientName = repo.nameForClient(request.customerId);
-              final count = repo.passageCount(request.customerId, restaurantId);
-              final restaurant = repo.restaurantById(restaurantId);
-              final remaining =
-                  restaurant.rewardThreshold -
-                  (count % restaurant.rewardThreshold);
-              final arrivedAgo = DateTime.now()
-                  .difference(request.requestedAt)
-                  .inMinutes;
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
-                decoration: BoxDecoration(
-                  color: AppColors.purple.withValues(alpha: 0.045),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: AppColors.purple.withValues(alpha: 0.10),
-                  ),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor: AppColors.purple.withValues(alpha: 0.14),
-                      child: Text(
-                        clientName.isNotEmpty
-                            ? clientName[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(
-                          color: AppColors.purple,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            clientName,
-                            style: TextStyle(
-                              color: text,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          Text(
-                            !canAct
-                                ? isExpired
-                                      ? 'Arrivée expirée · points non attribués'
-                                      : request.status == CheckInStatus.rejected
-                                      ? 'Refus en attente de synchronisation'
-                                      : 'Validation en attente de synchronisation'
-                                : remaining == 1
-                                ? '$count/${restaurant.rewardThreshold} · proche d\'une récompense'
-                                : '$count/${restaurant.rewardThreshold} visites · arrivé il y a ${arrivedAgo.clamp(0, 10)} min',
-                            style: TextStyle(
-                              color: isExpired ? AppColors.orange : muted,
-                              fontSize: 11,
-                              fontWeight: !canAct
-                                  ? FontWeight.w700
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                          if (canAct)
-                            Text(
-                              _loyaltyBadgeFor(count),
-                              style: const TextStyle(
-                                color: AppColors.teal,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    if (canAct)
-                      SizedBox(
-                        width: 82,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            SizedBox(
-                              height: 36,
-                              child: FilledButton.icon(
-                                onPressed: processing.contains(request.id)
-                                    ? null
-                                    : () => onApprove(request.id),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppColors.purple,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                                icon: processing.contains(request.id)
-                                    ? const SizedBox.shrink()
-                                    : const Icon(Icons.check, size: 15),
-                                label: processing.contains(request.id)
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Text(
-                                        'Valider',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                              ),
-                            ),
-                            SizedBox(
-                              height: 30,
-                              child: TextButton(
-                                onPressed: processing.contains(request.id)
-                                    ? null
-                                    : () => onReject(request.id),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: muted,
-                                  padding: EdgeInsets.zero,
-                                ),
-                                child: const Text(
-                                  'Refuser',
-                                  style: TextStyle(fontSize: 11),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ],
-      ),
+                );
+              }).toList(),
+            ),
     );
   }
 }
@@ -898,250 +584,48 @@ String _loyaltyBadgeFor(int passageCount) {
 }
 
 class _QuickActions extends StatelessWidget {
-  final String restaurantId;
-
   const _QuickActions({required this.restaurantId});
-
+  final String restaurantId;
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Actions rapides',
-          style: TextStyle(
-            color: AppTheme.textOf(context),
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
+  Widget build(BuildContext context) => Column(
+    key: const Key('dashboard-section-actions'),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const LoyaloDashboardSectionHeader('Actions rapides'),
+      const SizedBox(height: 10),
+      LoyaloDashboardPair(
+        first: LoyaloQuickAction(
+          label: 'Valider une visite',
+          icon: Icons.check_circle_outline_rounded,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const ValidateVisitScreen()),
           ),
         ),
-        const SizedBox(height: 10),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 2.9,
-          children: [
-            _QuickActionButton(
-              icon: Icons.check_circle_outline,
-              label: 'Valider',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ValidateVisitScreen()),
-              ),
-            ),
-            _QuickActionButton(
-              icon: Icons.people_outline,
-              label: 'Clients',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ClientSearchScreen()),
-              ),
-            ),
-            _QuickActionButton(
-              icon: Icons.local_fire_department_outlined,
-              label: 'Offre',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const OffersManagementScreen(),
-                ),
-              ),
-            ),
-            _QuickActionButton(
-              icon: Icons.card_giftcard_outlined,
-              label: 'Récompenses',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const RewardsManagementScreen(),
-                ),
-              ),
-            ),
-          ],
+        second: LoyaloQuickAction(
+          label: 'Mes clients',
+          icon: Icons.people_outline_rounded,
+          onTap: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const ClientSearchScreen())),
         ),
-      ],
-    );
-  }
-}
-
-class _QuickActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _QuickActionButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final text = AppTheme.textOf(context);
-    final border = AppTheme.borderOf(context);
-
-    return Material(
-      color: AppTheme.surfaceOf(context),
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: border),
+      ),
+      const SizedBox(height: 10),
+      LoyaloDashboardPair(
+        first: LoyaloQuickAction(
+          label: 'Créer une offre',
+          icon: Icons.local_fire_department_outlined,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const OffersManagementScreen()),
           ),
-          child: Row(
-            children: [
-              Icon(icon, color: AppColors.purple, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: text,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
+        ),
+        second: LoyaloQuickAction(
+          label: 'Mes récompenses',
+          icon: Icons.card_giftcard_outlined,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const RewardsManagementScreen()),
           ),
         ),
       ),
-    );
-  }
-}
-
-class _TodayCard extends StatelessWidget {
-  final Color color;
-  final String value;
-  final String label;
-  final String? trend;
-
-  const _TodayCard({
-    required this.color,
-    required this.value,
-    required this.label,
-    this.trend,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final surface = AppTheme.surfaceOf(context);
-    final text = AppTheme.textOf(context);
-    final muted = AppTheme.mutedOf(context);
-    final border = AppTheme.borderOf(context);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              color: text,
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(label, style: TextStyle(color: muted, fontSize: 12)),
-          const SizedBox(height: 8),
-          if (trend != null)
-            Text(
-              trend!,
-              style: TextStyle(
-                color: trend!.startsWith('-')
-                    ? AppColors.danger
-                    : AppColors.teal,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WideDarkStat extends StatelessWidget {
-  final String value;
-  final String label;
-  final String? trend;
-  final IconData icon;
-
-  const _WideDarkStat({
-    required this.value,
-    required this.label,
-    this.trend,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final surface = AppTheme.surfaceOf(context);
-    final text = AppTheme.textOf(context);
-    final muted = AppTheme.mutedOf(context);
-    final border = AppTheme.borderOf(context);
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: border),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    color: text,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                Text(label, style: TextStyle(color: muted, fontSize: 12)),
-                if (trend != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    trend!,
-                    style: TextStyle(
-                      color: trend!.startsWith('-')
-                          ? AppColors.danger
-                          : AppColors.teal,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: AppColors.teal.withValues(alpha: 0.16),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: AppColors.teal),
-          ),
-        ],
-      ),
-    );
-  }
+    ],
+  );
 }

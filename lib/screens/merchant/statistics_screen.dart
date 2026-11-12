@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../providers/app_providers.dart';
 import '../../services/loyalty_repository.dart';
 import '../../theme/app_theme.dart';
@@ -90,7 +91,9 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
     final maxY = series.isEmpty ? 1.0 : series.reduce((a, b) => a > b ? a : b);
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: loyaloPageAppBar(
+        context,
+        actionsWidth: 168,
         title: const Text('Statistiques'),
         actions: [
           Padding(
@@ -103,6 +106,10 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
                     .map((p) => PopupMenuItem(value: p, child: Text(p.label)))
                     .toList(),
                 child: Container(
+                  constraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
                     vertical: 6,

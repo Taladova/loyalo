@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../core/database/tables/local_visits.dart';
 import '../../providers/app_providers.dart';
 import '../../theme/app_theme.dart';
@@ -19,7 +20,10 @@ class ClientVisitHistoryScreen extends ConsumerWidget {
     final muted = AppTheme.mutedOf(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Historique des visites')),
+      appBar: loyaloPageAppBar(
+        context,
+        title: const Text('Historique des visites'),
+      ),
       body: visits.isEmpty
           ? Center(
               child: Text(

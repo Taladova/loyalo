@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../models/reward.dart';
 import '../../providers/app_providers.dart';
 import '../../services/auth_service.dart';
@@ -122,7 +123,7 @@ class MerchantClientProfileScreen extends ConsumerWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(client.name)),
+      appBar: loyaloPageAppBar(context, title: Text(client.name)),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../models/restaurant.dart';
 import '../../models/wishlist_place.dart';
 import '../../providers/app_providers.dart';
@@ -83,7 +84,8 @@ class _RestaurantListScreenState extends ConsumerState<RestaurantListScreen> {
     final user = ref.watch(currentUserProvider)!;
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: loyaloPageAppBar(
+        context,
         title: const Text('Commerces Loyalo'),
         actions: [
           IconButton(

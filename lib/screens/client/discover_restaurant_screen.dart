@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../models/wishlist_place.dart';
 import '../../providers/app_providers.dart';
 import '../../services/places_search_service.dart';
@@ -93,7 +94,7 @@ class _DiscoverRestaurantScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Recherche externe')),
+      appBar: loyaloPageAppBar(context, title: const Text('Recherche externe')),
       body: Column(
         children: [
           Padding(

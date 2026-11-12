@@ -77,6 +77,8 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   fake_cloud_firestore: ^3.1.0
+  firebase_core_platform_interface: ^6.0.3
+  firebase_auth_platform_interface: ^7.7.3
   flutter_launcher_icons: ^0.14.4
   flutter_native_splash: ^2.4.3
   drift_dev: ^2.35.1
@@ -97,9 +99,24 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/images/app_icon_foreground.png
     - assets/images/loyalo_logo.png
     - assets/images/loyalo_logo_compact.png
     - assets/images/logo-app-loyalo-light.png
+    - assets/images/logo_loyalo_v3_light.png
+    - assets/images/loyalo_welcome_hero.png
+    - assets/images/loyalo_client_login_hero.png
+    - assets/images/welcome/welcome_hero.png
+    - assets/images/welcome/welcome_city.png
+    - assets/images/login/client_login_hero.png
+    - assets/images/signup/client_signup_hero.png
+    - assets/images/signup/merchant_signup_hero.png
+    - assets/images/program/program_setup_hero.png
+    - assets/images/dashboard/merchant_dashboard_hero.png
+    - assets/images/merchant/client_search_illustration.png
+    - assets/images/merchant/exclusive_offers_icon.png
+    - assets/images/validation/visit_code_illustration.png
+    - assets/images/validation/visit_qr_illustration.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

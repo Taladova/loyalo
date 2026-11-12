@@ -6,8 +6,9 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../core/database/tables/local_visits.dart';
 import '../../providers/app_providers.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/loyalo_logo.dart';
+import '../../widgets/loyalo_page_header.dart';
 import '../../widgets/loyalo_ui.dart';
+import 'my_qr_code_screen.dart';
 
 class MyCodeScreen extends ConsumerWidget {
   final VoidCallback? onBack;
@@ -27,17 +28,16 @@ class MyCodeScreen extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Ma carte Loyalo',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
+            LoyaloPageHeader(
+              title: 'Ma carte Loyalo',
+              inverse: false,
+              centerTitle: false,
+              titleStyle: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              actions: [
                 IconButton(
+                  tooltip: onBack == null ? 'Fermer' : 'Retour',
                   onPressed:
                       onBack ?? () => Navigator.maybeOf(context)?.maybePop(),
                   icon: Icon(onBack == null ? Icons.close : Icons.arrow_back),
@@ -80,8 +80,6 @@ class MyCodeScreen extends ConsumerWidget {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const LoyaloWordmark(markSize: 48, showTagline: false),
-                      const SizedBox(height: 26),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
@@ -172,7 +170,17 @@ class MyCodeScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              key: const Key('open-my-qr-code'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const MyQrCodeScreen()),
+              ),
+              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+              icon: const Icon(Icons.qr_code_2_rounded),
+              label: const Text('Mon QR code'),
+            ),
+            const SizedBox(height: 12),
             Row(
               children: [
                 const Expanded(

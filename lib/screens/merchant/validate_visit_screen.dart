@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../providers/app_providers.dart';
 import '../../services/analytics_service.dart';
 import '../../services/loyalty_repository.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/loyalo_ui.dart';
+import '../../widgets/loyalo_auth_ui.dart';
+import '../../widgets/loyalo_visit_validation_ui.dart';
 import 'client_search_screen.dart';
 
 class ValidateVisitScreen extends ConsumerStatefulWidget {
@@ -17,7 +20,10 @@ class ValidateVisitScreen extends ConsumerStatefulWidget {
 }
 
 class _ValidateVisitScreenState extends ConsumerState<ValidateVisitScreen> {
-  bool _byCode = true;
+  // Le scanner ne devient initial qu'après activation du service sécurisé.
+  LoyaloVisitMethod _method = LoyaloVisitMethod.code;
+  bool _openingSearch = false;
+  final _methodPaneKey = GlobalKey();
   String _digits = '';
   bool _validating = false;
 
@@ -34,28 +40,37 @@ class _ValidateVisitScreenState extends ConsumerState<ValidateVisitScreen> {
   Future<void> _validate() async {
     if (_validating) return;
     setState(() => _validating = true);
-    final repo = ref.read(loyaltyRepositoryProvider);
-    final restaurantId = ref.read(currentMerchantRestaurantIdProvider)!;
-    final userId = await repo.resolveUserIdFromCode(_digits);
-
-    if (userId == null) {
-      setState(() => _validating = false);
-      _showDialog(
-        'Code introuvable',
-        'Aucun client ne correspond à ce code aujourd\'hui.',
-        AppColors.danger,
+    try {
+      final repo = ref.read(loyaltyRepositoryProvider);
+      final restaurantId = ref.read(currentMerchantRestaurantIdProvider)!;
+      final userId = await repo.resolveUserIdFromCode(_digits);
+      if (!mounted) return;
+      if (userId == null) {
+        _showDialog(
+          'Code introuvable',
+          'Aucun client ne correspond à ce code aujourd\'hui.',
+          AppColors.danger,
+        );
+        return;
+      }
+      final result = await repo.registerVisit(
+        userId: userId,
+        restaurantId: restaurantId,
       );
-      return;
+      if (!mounted) return;
+      _showResult(repo, result);
+      setState(() => _digits = '');
+    } catch (_) {
+      if (mounted) {
+        _showDialog(
+          'Validation indisponible',
+          'Impossible de valider la visite pour le moment. Vérifiez votre connexion puis réessayez.',
+          AppColors.danger,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _validating = false);
     }
-
-    final result = await repo.registerVisit(
-      userId: userId,
-      restaurantId: restaurantId,
-    );
-    if (!mounted) return;
-    setState(() => _validating = false);
-    _showResult(repo, result);
-    setState(() => _digits = '');
   }
 
   void _showResult(LoyaltyRepository repo, VisitResult result) {
@@ -109,204 +124,131 @@ class _ValidateVisitScreenState extends ConsumerState<ValidateVisitScreen> {
     );
   }
 
+  Future<void> _selectMethod(LoyaloVisitMethod method) async {
+    if (_validating || _openingSearch) return;
+    if (method != LoyaloVisitMethod.search) {
+      setState(() => _method = method);
+      if (MediaQuery.textScalerOf(context).scale(16) > 23) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return;
+          final pane = _methodPaneKey.currentContext;
+          if (pane == null) return;
+          Scrollable.ensureVisible(
+            pane,
+            alignment: 0,
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 180),
+          );
+        });
+      }
+      return;
+    }
+    final previous = _method;
+    setState(() {
+      _method = method;
+      _openingSearch = true;
+    });
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const ClientSearchScreen()),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _method = previous;
+          _openingSearch = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pasteCode() async {
+    if (_validating) return;
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      if (!mounted || _validating) return;
+      final value = (data?.text ?? '').replaceAll(RegExp(r'\s'), '');
+      if (!RegExp(r'^[0-9]{6}$').hasMatch(value)) {
+        _showDialog(
+          'Code invalide',
+          'Copiez un code composé de 6 chiffres.',
+          AppColors.danger,
+        );
+        return;
+      }
+      setState(() => _digits = value);
+    } catch (_) {
+      if (mounted) {
+        _showDialog(
+          'Collage indisponible',
+          'Saisissez le code avec le clavier numérique.',
+          AppColors.danger,
+        );
+      }
+    }
+  }
+
+  KeyEventResult _handleCodeKey(FocusNode node, KeyEvent event) {
+    if (_validating || (event is! KeyDownEvent && event is! KeyRepeatEvent)) {
+      return KeyEventResult.ignored;
+    }
+    final character = event.character;
+    if (character != null && RegExp(r'^[0-9]$').hasMatch(character)) {
+      _tapDigit(character);
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.backspace) {
+      _backspace();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Valider une visite')),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _ModeButton(
-                      label: 'Par code',
-                      selected: _byCode,
-                      onTap: () => setState(() => _byCode = true),
-                    ),
-                  ),
-                  Expanded(
-                    child: _ModeButton(
-                      label: 'Par client',
-                      selected: !_byCode,
-                      onTap: () async {
-                        setState(() => _byCode = false);
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const ClientSearchScreen(),
-                          ),
-                        );
-                        if (mounted) setState(() => _byCode = true);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 22),
-            const LoyaloIconBadge(
-              icon: Icons.qr_code_scanner,
-              color: AppColors.purple,
-              size: 64,
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              'Demandez le code à 6 chiffres\nà votre client',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.textDark,
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Une visite par jour et par commerce.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.textGray, fontSize: 12),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(6, (i) {
-                final filled = i < _digits.length;
-                return Container(
-                  width: 40,
-                  height: 50,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: filled ? AppColors.purple : AppColors.border,
-                      width: filled ? 1.8 : 1,
-                    ),
-                    boxShadow: filled
-                        ? [
-                            BoxShadow(
-                              color: AppColors.purple.withValues(alpha: 0.12),
-                              blurRadius: 12,
-                              offset: const Offset(0, 6),
-                            ),
-                          ]
+  Widget build(BuildContext context) => LoyaloAuthScaffold(
+    onBack: () => Navigator.of(context).maybePop(),
+    showBackButton: false,
+    headerBuilder: (context, compact, veryCompact) => Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: LoyaloPageHeader(
+        title: 'Valider une visite',
+        showBackButton: Navigator.of(context).canPop(),
+        onBack: () => Navigator.of(context).maybePop(),
+      ),
+    ),
+    contentBuilder: (context, compact) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        LoyaloVisitMethodSelector(
+          selected: _method,
+          enabled: !_validating && !_openingSearch,
+          onSelected: _selectMethod,
+        ),
+        const SizedBox(height: 12),
+        KeyedSubtree(
+          key: _methodPaneKey,
+          child: _method == LoyaloVisitMethod.scanner
+              ? LoyaloVisitQrUnavailable(
+                  client: false,
+                  onCode: () => _selectMethod(LoyaloVisitMethod.code),
+                  onSearch: () => _selectMethod(LoyaloVisitMethod.search),
+                )
+              : Focus(
+                  onKeyEvent: _handleCodeKey,
+                  child: LoyaloVisitCodePane(
+                    digits: _digits,
+                    loading: _validating,
+                    onDigit: _tapDigit,
+                    onBackspace: _backspace,
+                    onPaste: _pasteCode,
+                    onValidate: _digits.length == 6 && !_validating
+                        ? _validate
                         : null,
                   ),
-                  child: Text(
-                    filled ? _digits[i] : '',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                );
-              }),
-            ),
-            const Spacer(),
-            _Keypad(onDigit: _tapDigit, onBackspace: _backspace),
-            const SizedBox(height: 16),
-            LoyaloGradientButton(
-              label: 'Valider la visite',
-              onPressed: _digits.length == 6 && !_validating ? _validate : null,
-            ),
-          ],
+                ),
         ),
-      ),
-    );
-  }
-}
-
-class _ModeButton extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ModeButton({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          gradient: selected ? AppColors.brandGradient : null,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.white : AppColors.textDark,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Keypad extends StatelessWidget {
-  final ValueChanged<String> onDigit;
-  final VoidCallback onBackspace;
-
-  const _Keypad({required this.onDigit, required this.onBackspace});
-
-  @override
-  Widget build(BuildContext context) {
-    const rows = [
-      ['1', '2', '3'],
-      ['4', '5', '6'],
-      ['7', '8', '9'],
-      ['', '0', '⌫'],
-    ];
-    return Column(
-      children: rows
-          .map(
-            (row) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: row.map((key) {
-                  if (key.isEmpty) return const SizedBox(width: 64, height: 52);
-                  return SizedBox(
-                    width: 64,
-                    height: 52,
-                    child: TextButton(
-                      onPressed: () =>
-                          key == '⌫' ? onBackspace() : onDigit(key),
-                      style: TextButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: Text(
-                        key,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textDark,
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          )
-          .toList(),
-    );
-  }
+      ],
+    ),
+  );
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../models/referral.dart';
 import '../../providers/app_providers.dart';
 import '../../theme/app_theme.dart';
@@ -113,7 +114,7 @@ class ReferralScreen extends ConsumerWidget {
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Parrainage')),
+      appBar: loyaloPageAppBar(context, title: const Text('Parrainage')),
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [

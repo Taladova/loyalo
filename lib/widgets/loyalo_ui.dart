@@ -6,22 +6,30 @@ class LoyaloGradientButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
+  final IconData? trailingIcon;
+  final bool loading;
+  final double height;
+  final double borderRadius;
 
   const LoyaloGradientButton({
     super.key,
     required this.label,
     required this.onPressed,
     this.icon,
+    this.trailingIcon,
+    this.loading = false,
+    this.height = 54,
+    this.borderRadius = 18,
   });
 
   @override
   Widget build(BuildContext context) {
-    final disabled = onPressed == null;
+    final disabled = onPressed == null && !loading;
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: disabled ? null : AppColors.brandGradient,
         color: disabled ? AppColors.lightGray : null,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(borderRadius),
         boxShadow: disabled
             ? null
             : [
@@ -36,9 +44,9 @@ class LoyaloGradientButton extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(borderRadius),
           child: SizedBox(
-            height: 54,
+            height: height,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -46,14 +54,33 @@ class LoyaloGradientButton extends StatelessWidget {
                   Icon(icon, color: Colors.white, size: 19),
                   const SizedBox(width: 8),
                 ],
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                if (loading)
+                  const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.4,
+                      color: Colors.white,
+                    ),
+                  )
+                else ...[
+                  Expanded(
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                ),
+                  if (trailingIcon != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 18),
+                      child: Icon(trailingIcon, color: Colors.white, size: 26),
+                    ),
+                ],
               ],
             ),
           ),

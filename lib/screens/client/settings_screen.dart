@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../legal_content.dart';
 import '../../providers/app_providers.dart';
 import '../../services/auth_service.dart';
@@ -131,7 +132,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final user = ref.watch(currentUserProvider)!;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Paramètres')),
+      appBar: loyaloPageAppBar(context, title: const Text('Paramètres')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../providers/app_providers.dart';
 import '../../theme/app_theme.dart';
 
@@ -15,7 +16,7 @@ class ActivityHistoryScreen extends ConsumerWidget {
     final activity = repo.recentActivityForRestaurant(restaurantId, limit: 500);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Activité récente')),
+      appBar: loyaloPageAppBar(context, title: const Text('Activité récente')),
       body: activity.isEmpty
           ? const Center(
               child: Text(

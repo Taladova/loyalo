@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../models/reward.dart';
 import '../../providers/app_providers.dart';
 import '../../theme/app_theme.dart';
@@ -45,7 +46,8 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
     };
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: loyaloPageAppBar(
+        context,
         title: const Text('Offres exclusives'),
         actions: const [
           Padding(

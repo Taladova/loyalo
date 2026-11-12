@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/loyalo_page_header.dart';
 import '../../providers/app_providers.dart';
 import '../../services/auth_service.dart';
 import '../../theme/app_theme.dart';
@@ -21,7 +22,7 @@ class ClientProfileScreen extends ConsumerWidget {
     final border = AppTheme.borderOf(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profil')),
+      appBar: loyaloPageAppBar(context, title: const Text('Profil')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [

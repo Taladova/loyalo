@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/loyalo_page_header.dart';
 
 import '../theme/app_theme.dart';
 
@@ -11,7 +12,7 @@ class LegalScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: loyaloPageAppBar(context, title: Text(title)),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Text(

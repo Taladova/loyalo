@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../widgets/loyalo_page_header.dart';
 import '../models/loyalo_notification.dart';
 import '../providers/app_providers.dart';
 import '../services/auth_service.dart';
@@ -35,7 +36,7 @@ class NotificationsScreen extends ConsumerWidget {
     final border = AppTheme.borderOf(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Notifications')),
+      appBar: loyaloPageAppBar(context, title: const Text('Notifications')),
       body: items.isEmpty
           ? Center(
               child: Padding(

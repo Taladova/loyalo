@@ -151,6 +151,13 @@ String iconKeyFor(IconData icon) {
 }
 
 class Restaurant {
+  /// Brouillon créé par l'inscription simplifiée, avant toute publication.
+  bool get needsLoyaltySetup =>
+      !active &&
+      status == RestaurantStatus.draft &&
+      !loyaltyProgramEnabled &&
+      rewardLabel.trim().isEmpty;
+
   final String id;
   final String name;
   final String cuisine;
