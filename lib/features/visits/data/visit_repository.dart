@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
+
+import '../../../core/data/repository_read_state.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/pending_action_payload.dart';
@@ -69,38 +72,79 @@ class VisitRepository {
   List<Visit> _visits = [];
   final Map<String, LocalVisitSyncStatus> _syncStatusByVisitId = {};
 
+  final _readState = ValueNotifier<RepositoryReadState>(
+    const RepositoryReadState.unavailable(),
+  );
+  ValueListenable<RepositoryReadState> get readState => _readState;
+
   List<Visit> get visits => List.unmodifiable(_visits);
 
   Stream<List<Visit>> watchVisits({String? userId, String? restaurantId}) {
     late StreamController<List<Visit>> controller;
     StreamSubscription<List<LocalVisit>>? localSubscription;
     StreamSubscription<List<Visit>>? remoteSubscription;
+    var active = true;
+    var localReady = false;
+    var remoteReady = false;
+    Object? localError;
+    Object? remoteError;
+    void publishReadState() {
+      if (!active) return;
+      final error = localError ?? remoteError;
+      _readState.value = error != null
+          ? RepositoryReadState.error(error)
+          : localReady && remoteReady
+          ? const RepositoryReadState.ready()
+          : const RepositoryReadState.loading();
+    }
 
     controller = StreamController<List<Visit>>(
       onListen: () {
+        publishReadState();
         localSubscription =
-            _localStream(userId: userId, restaurantId: restaurantId).listen((
-              localVisits,
-            ) {
-              _syncStatusByVisitId
-                ..clear()
-                ..addEntries(
-                  localVisits.map(
-                    (visit) => MapEntry(visit.visitId, visit.syncStatus),
-                  ),
-                );
-              _visits = localVisits.map(VisitMapper.fromLocal).toList();
-              controller.add(visits);
-            }, onError: controller.addError);
+            _localStream(userId: userId, restaurantId: restaurantId).listen(
+              (localVisits) {
+                _syncStatusByVisitId
+                  ..clear()
+                  ..addEntries(
+                    localVisits.map(
+                      (visit) => MapEntry(visit.visitId, visit.syncStatus),
+                    ),
+                  );
+                _visits = localVisits.map(VisitMapper.fromLocal).toList();
+                controller.add(visits);
+                localReady = true;
+                localError = null;
+                publishReadState();
+              },
+              onError: (Object error, StackTrace stackTrace) {
+                localError = error;
+                publishReadState();
+                controller.addError(error, stackTrace);
+              },
+            );
 
         remoteSubscription = _remoteDataSource
             .watchVisits(userId: userId, restaurantId: restaurantId)
             .listen(
-              (remoteVisits) async => _reconcile(remoteVisits),
-              onError: (_) {},
+              (remoteVisits) async {
+                try {
+                  await _reconcile(remoteVisits);
+                  remoteReady = true;
+                  remoteError = null;
+                } catch (error) {
+                  remoteError = error;
+                }
+                publishReadState();
+              },
+              onError: (Object error) {
+                remoteError = error;
+                publishReadState();
+              },
             );
       },
       onCancel: () async {
+        active = false;
         await localSubscription?.cancel();
         await remoteSubscription?.cancel();
       },

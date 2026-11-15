@@ -153,6 +153,7 @@ Future<
 _pump(
   WidgetTester tester, {
   bool draft = true,
+  bool embedded = false,
   bool completeOnboarding = false,
   int clients = 0,
   Size size = const Size(390, 844),
@@ -220,7 +221,10 @@ _pump(
           ),
           child: child!,
         ),
-        home: RewardsManagementScreen(completeOnboarding: completeOnboarding),
+        home: RewardsManagementScreen(
+          completeOnboarding: completeOnboarding,
+          embedded: embedded,
+        ),
       ),
     ),
   );
@@ -250,6 +254,18 @@ void main() {
   setUpAll(() {
     FirebasePlatform.instance = _Core();
     FirebaseAuthPlatform.instance = _Auth();
+  });
+
+  testWidgets('Récompenses principale sans retour et titre aligné à gauche', (
+    tester,
+  ) async {
+    await _pump(tester, draft: false, embedded: true);
+    expect(find.text('Récompenses'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsNothing);
+    expect(find.byType(LoyaloProgramHeader), findsNothing);
+    expect(find.byKey(const Key('program-save')), findsOneWidget);
+    final title = tester.widget<Text>(find.text('Récompenses'));
+    expect(title.textAlign, TextAlign.start);
   });
 
   testWidgets('Structure sans illustration décorative et brouillon intact', (

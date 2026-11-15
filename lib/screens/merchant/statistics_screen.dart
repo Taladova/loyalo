@@ -1,12 +1,14 @@
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../widgets/loyalo_page_header.dart';
+import '../../core/data/repository_read_state.dart';
 import '../../providers/app_providers.dart';
 import '../../services/loyalty_repository.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/stat_pill.dart';
+import '../../widgets/loyalo_auth_ui.dart';
+import '../../widgets/loyalo_page_header.dart';
+import '../../widgets/loyalo_statistics_ui.dart';
+import '../../widgets/loyalo_ui.dart';
 
 enum _Period { sevenDays, thirtyDays, ninetyDays }
 
@@ -36,18 +38,214 @@ extension on _Period {
 
 class StatisticsScreen extends ConsumerStatefulWidget {
   const StatisticsScreen({super.key});
-
   @override
   ConsumerState<StatisticsScreen> createState() => _StatisticsScreenState();
 }
 
 class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
   _Period _period = _Period.thirtyDays;
+  bool _retrying = false;
+  bool _retryFailed = false;
+
+  Future<void> _retry() async {
+    if (_retrying) return;
+    setState(() {
+      _retrying = true;
+      _retryFailed = false;
+    });
+    try {
+      await ref.read(loyaltyRepositoryProvider).retryRestaurants();
+    } catch (_) {
+      if (mounted) setState(() => _retryFailed = true);
+    } finally {
+      if (mounted) setState(() => _retrying = false);
+    }
+  }
+
+  Widget _periodMenu(double width) => SizedBox(
+    width: width,
+    child: PopupMenuButton<_Period>(
+      key: const Key('statistics-period'),
+      tooltip: 'Choisir la période',
+      initialValue: _period,
+      onSelected: (period) => setState(() => _period = period),
+      itemBuilder: (context) => _Period.values
+          .map(
+            (period) => PopupMenuItem(value: period, child: Text(period.label)),
+          )
+          .toList(),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.calendar_today_outlined,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                _period.label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.keyboard_arrow_down,
+              color: Colors.white,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _frame(BuildContext context, Widget content) => LoyaloAuthScaffold(
+    onBack: () => Navigator.of(context).maybePop(),
+    showBackButton: false,
+    headerBuilder: (context, compact, veryCompact) => Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          double measure(String text, double size, FontWeight weight) {
+            final painter = TextPainter(
+              text: TextSpan(
+                text: text,
+                style: DefaultTextStyle.of(
+                  context,
+                ).style.merge(TextStyle(fontSize: size, fontWeight: weight)),
+              ),
+              textScaler: MediaQuery.textScalerOf(context),
+              textDirection: Directionality.of(context),
+            )..layout();
+            final width = painter.width;
+            painter.dispose();
+            return width;
+          }
+
+          final back = Navigator.of(context).canPop();
+          final selectorWidth =
+              (measure(_period.label, 12, FontWeight.w600) + 79).clamp(
+                0.0,
+                constraints.maxWidth,
+              );
+          final combined =
+              measure('Statistiques', 22, FontWeight.w800) +
+              selectorWidth +
+              16 +
+              (back ? 56 : 0);
+          final menu = _periodMenu(selectorWidth);
+          final inline =
+              combined <= constraints.maxWidth &&
+              MediaQuery.textScalerOf(context).scale(16) <= 23;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LoyaloPageHeader(
+                title: 'Statistiques',
+                centerTitle: false,
+                showBackButton: back,
+                onBack: () => Navigator.of(context).maybePop(),
+                actions: inline ? [menu] : [],
+              ),
+              if (!inline) ...[
+                const SizedBox(height: 8),
+                Align(alignment: Alignment.centerRight, child: menu),
+              ],
+            ],
+          );
+        },
+      ),
+    ),
+    contentBuilder: (context, compact) => content,
+  );
+
+  Widget _status(String message, {bool loading = false, bool retry = false}) =>
+      LoyaloCard(
+        color: Colors.white,
+        child: Semantics(
+          liveRegion: true,
+          child: Column(
+            children: [
+              if (loading)
+                const CircularProgressIndicator(color: LoyaloAuthColors.purple)
+              else
+                const LoyaloIconBadge(icon: Icons.info_outline, size: 42),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: LoyaloAuthColors.textSecondary,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+              if (retry) ...[
+                const SizedBox(height: 16),
+                LoyaloAuthPrimaryButton(
+                  label: 'Réessayer',
+                  onPressed: _retrying ? null : _retry,
+                  loading: _retrying,
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
     final repo = ref.watch(loyaltyRepositoryProvider);
-    final restaurantId = ref.watch(currentMerchantRestaurantIdProvider)!;
+    final restaurantId = ref.watch(currentMerchantRestaurantIdProvider);
+    if (restaurantId == null) {
+      return _frame(
+        context,
+        _status('Votre session commerçant est indisponible. Reconnectez-vous.'),
+      );
+    }
+    if (repo.restaurantsLoadError != null || _retryFailed) {
+      return _frame(
+        context,
+        _status(
+          'Impossible de charger les statistiques de votre commerce.',
+          retry: true,
+        ),
+      );
+    }
+    if (repo.restaurantsLoading) {
+      return _frame(
+        context,
+        _status('Chargement des statistiques…', loading: true),
+      );
+    }
+    if (repo.restaurantByIdOrNull(restaurantId) == null) {
+      return _frame(
+        context,
+        _status('Votre commerce est indisponible pour le moment.', retry: true),
+      );
+    }
+
+    LoyaloStatisticStatus statusFor(StatisticsDataSource source) =>
+        switch (repo.statisticsReadState(source).status) {
+          RepositoryReadStatus.ready => LoyaloStatisticStatus.ready,
+          RepositoryReadStatus.loading => LoyaloStatisticStatus.loading,
+          RepositoryReadStatus.error => LoyaloStatisticStatus.error,
+          RepositoryReadStatus.unavailable => LoyaloStatisticStatus.unavailable,
+        };
+    final visitStatus = statusFor(StatisticsDataSource.visits);
     final range = _rangeFor(_period, DateTime.now());
     final visits = repo.visitsForRestaurantBetween(
       restaurantId,
@@ -88,310 +286,168 @@ class _StatisticsScreenState extends ConsumerState<StatisticsScreen> {
     final visitTrend = _trend(visits.length, previousVisits.length);
     final clientTrend = _trend(currentClientCount, previousClientCount);
     final rewardTrend = _trend(rewards, previousRewards);
-    final maxY = series.isEmpty ? 1.0 : series.reduce((a, b) => a > b ? a : b);
+    final errors = StatisticsDataSource.values
+        .where((source) => statusFor(source) == LoyaloStatisticStatus.error)
+        .isNotEmpty;
+    final cards = [
+      LoyaloStatisticCard(
+        key: const Key('stats-visits'),
+        id: 'visits',
+        label: 'Visites',
+        value: '${visits.length}',
+        icon: Icons.trending_up,
+        color: AppColors.teal,
+        status: visitStatus,
+        trend: visitTrend.label,
+        trendUp: visitTrend.trendUp,
+      ),
+      LoyaloStatisticCard(
+        key: const Key('stats-clients'),
+        id: 'clients',
+        label: 'Clients',
+        value: '$currentClientCount',
+        icon: Icons.people_alt_outlined,
+        color: AppColors.blue,
+        status: visitStatus,
+        trend: clientTrend.label,
+        trendUp: clientTrend.trendUp,
+      ),
+      LoyaloStatisticCard(
+        key: const Key('stats-rewards'),
+        id: 'rewards',
+        label: 'Récompenses',
+        value: '$rewards',
+        icon: Icons.card_giftcard,
+        color: AppColors.purple,
+        status: statusFor(StatisticsDataSource.rewards),
+        trend: rewardTrend.label,
+        trendUp: rewardTrend.trendUp,
+      ),
+      LoyaloStatisticCard(
+        key: const Key('stats-points'),
+        id: 'points',
+        label: 'Points',
+        value: '$points',
+        icon: Icons.star_border,
+        color: AppColors.orange,
+        status: visitStatus,
+      ),
+      LoyaloStatisticCard(
+        key: const Key('stats-offers'),
+        id: 'offers',
+        label: 'Offres actives',
+        value: '${repo.activeOffersForRestaurant(restaurantId)}',
+        icon: Icons.local_fire_department_outlined,
+        color: AppColors.purple,
+        status: statusFor(StatisticsDataSource.offers),
+      ),
+      LoyaloStatisticCard(
+        key: const Key('stats-checkins'),
+        id: 'checkins',
+        label: 'Check-ins',
+        value: '${repo.pendingCheckInsCount(restaurantId)}',
+        icon: Icons.task_alt,
+        color: AppColors.teal,
+        status: statusFor(StatisticsDataSource.checkIns),
+      ),
+      LoyaloStatisticCard(
+        key: const Key('stats-referrals'),
+        id: 'referrals',
+        label: 'Parrainages',
+        value: '${repo.rewardedReferralsForRestaurant(restaurantId)}',
+        icon: Icons.group_add_outlined,
+        color: AppColors.success,
+        status: statusFor(StatisticsDataSource.referrals),
+      ),
+      LoyaloStatisticCard(
+        key: const Key('stats-pending'),
+        id: 'pending',
+        label: 'En attente',
+        value: '${repo.pendingReferralsForRestaurant(restaurantId)}',
+        icon: Icons.hourglass_empty,
+        color: AppColors.orange,
+        status: statusFor(StatisticsDataSource.referrals),
+      ),
+    ];
 
-    return Scaffold(
-      appBar: loyaloPageAppBar(
-        context,
-        actionsWidth: 168,
-        title: const Text('Statistiques'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Center(
-              child: PopupMenuButton<_Period>(
-                initialValue: _period,
-                onSelected: (p) => setState(() => _period = p),
-                itemBuilder: (context) => _Period.values
-                    .map((p) => PopupMenuItem(value: p, child: Text(p.label)))
-                    .toList(),
-                child: Container(
-                  constraints: const BoxConstraints(
-                    minWidth: 48,
-                    minHeight: 48,
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(_period.label, style: const TextStyle(fontSize: 12)),
-                      const Icon(Icons.keyboard_arrow_down, size: 16),
-                    ],
-                  ),
+    return _frame(
+      context,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (errors) ...[
+            const LoyaloAuthError(
+              message:
+                  'Certaines statistiques ne peuvent pas être chargées. Les valeurs indisponibles sont indiquées par « — ».',
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _retrying ? null : _retry,
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                label: const Text(
+                  'Réessayer',
+                  style: TextStyle(color: Colors.white),
                 ),
+                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+              ),
+            ),
+          ],
+          Semantics(
+            header: true,
+            child: const Text(
+              'Aperçu',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Text(
-            'Aperçu',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-          ),
           const SizedBox(height: 12),
-          Row(
+          LoyaloStatisticsGrid(cards: cards),
+          const SizedBox(height: 22),
+          Wrap(
+            spacing: 12,
+            runSpacing: 6,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Expanded(
-                child: StatPill(
-                  label: 'Visites',
-                  value: '${visits.length}',
-                  trend: visitTrend.label,
-                  trendUp: visitTrend.trendUp,
-                  icon: Icons.trending_up,
-                  iconColor: AppColors.teal,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: StatPill(
-                  label: 'Clients',
-                  value: '$currentClientCount',
-                  trend: clientTrend.label,
-                  trendUp: clientTrend.trendUp,
-                  icon: Icons.people_alt_outlined,
-                  iconColor: AppColors.blue,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: StatPill(
-                  label: 'Récompenses',
-                  value: '$rewards',
-                  trend: rewardTrend.label,
-                  trendUp: rewardTrend.trendUp,
-                  icon: Icons.card_giftcard,
-                  iconColor: AppColors.purple,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: StatPill(
-                  label: 'Points',
-                  value: '$points',
-                  icon: Icons.star_border,
-                  iconColor: AppColors.orange,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: StatPill(
-                  label: 'Offres actives',
-                  value: '${repo.activeOffersForRestaurant(restaurantId)}',
-                  icon: Icons.local_fire_department_outlined,
-                  iconColor: AppColors.purple,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: StatPill(
-                  label: 'Check-ins',
-                  value: '${repo.pendingCheckInsCount(restaurantId)}',
-                  icon: Icons.task_alt,
-                  iconColor: AppColors.teal,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: StatPill(
-                  label: 'Parrainages',
-                  value: '${repo.rewardedReferralsForRestaurant(restaurantId)}',
-                  icon: Icons.group_add_outlined,
-                  iconColor: AppColors.success,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: StatPill(
-                  label: 'En attente',
-                  value: '${repo.pendingReferralsForRestaurant(restaurantId)}',
-                  icon: Icons.hourglass_empty,
-                  iconColor: AppColors.orange,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              const Expanded(
-                child: Text(
+              Semantics(
+                header: true,
+                child: const Text(
                   'Évolution des visites',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
               Text(
-                '${visits.length}',
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.purple,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 1),
-                child: Text(
-                  'visites · ${_period.label.toLowerCase()}',
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    color: AppColors.textGray,
-                  ),
+                visitStatus == LoyaloStatisticStatus.ready
+                    ? '${visits.length} visites · ${_period.label.toLowerCase()}'
+                    : visitStatus == LoyaloStatisticStatus.loading
+                    ? 'Chargement…'
+                    : 'Indisponible',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.85),
+                  fontSize: 12,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.fromLTRB(8, 20, 16, 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.navy.withValues(alpha: 0.04),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: SizedBox(
-              height: 200,
-              child: LineChart(
-                LineChartData(
-                  minY: 0,
-                  maxY: maxY <= 0 ? 1 : maxY + 1,
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: false,
-                    horizontalInterval: _gridInterval(series),
-                    getDrawingHorizontalLine: (_) => FlLine(
-                      color: AppColors.border,
-                      strokeWidth: 1,
-                      dashArray: [4, 4],
-                    ),
-                  ),
-                  titlesData: FlTitlesData(
-                    topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 34,
-                        interval: _gridInterval(series),
-                        getTitlesWidget: (v, meta) => Text(
-                          v >= 1000
-                              ? '${(v / 1000).toStringAsFixed(1)}k'
-                              : v.toInt().toString(),
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: AppColors.textGray,
-                          ),
-                        ),
-                      ),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 22,
-                        interval: (series.length / 4)
-                            .clamp(1, series.length)
-                            .roundToDouble(),
-                        getTitlesWidget: (v, meta) => Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(
-                            'J${v.toInt() + 1}',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: AppColors.textGray,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  lineTouchData: LineTouchData(
-                    touchTooltipData: LineTouchTooltipData(
-                      getTooltipColor: (_) => AppColors.navy,
-                      tooltipBorderRadius: BorderRadius.circular(8),
-                      getTooltipItems: (spots) => spots
-                          .map(
-                            (s) => LineTooltipItem(
-                              s.y.toInt().toString(),
-                              const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 12,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ),
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: [
-                        for (var i = 0; i < series.length; i++)
-                          FlSpot(i.toDouble(), series[i]),
-                      ],
-                      isCurved: true,
-                      color: AppColors.purple,
-                      barWidth: 3,
-                      dotData: const FlDotData(show: false),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        gradient: LinearGradient(
-                          colors: [
-                            AppColors.purple.withValues(alpha: 0.22),
-                            AppColors.purple.withValues(alpha: 0.0),
-                          ],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          const SizedBox(height: 12),
+          LoyaloVisitsChart(
+            series: series,
+            start: range.currentStart,
+            total: visits.length,
+            periodLabel: _period.label,
+            status: visitStatus,
           ),
         ],
       ),
     );
-  }
-
-  double _gridInterval(List<double> series) {
-    if (series.isEmpty) return 1;
-    final maxY = series.reduce((a, b) => a > b ? a : b);
-    final raw = maxY / 4;
-    if (raw <= 0) return 1;
-    final magnitude = raw < 10 ? 1 : (raw < 100 ? 10 : 100);
-    return (raw / magnitude).ceil() * magnitude.toDouble();
   }
 }
 

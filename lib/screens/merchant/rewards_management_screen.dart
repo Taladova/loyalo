@@ -7,12 +7,18 @@ import '../../services/auth_service.dart';
 import '../../services/loyalty_repository.dart';
 import '../../widgets/loyalo_auth_ui.dart';
 import '../../widgets/loyalo_program_ui.dart';
+import '../../widgets/loyalo_page_header.dart';
 import 'merchant_root_screen.dart';
 
 class RewardsManagementScreen extends ConsumerStatefulWidget {
-  const RewardsManagementScreen({super.key, this.completeOnboarding = false});
+  const RewardsManagementScreen({
+    super.key,
+    this.completeOnboarding = false,
+    this.embedded = false,
+  });
 
   final bool completeOnboarding;
+  final bool embedded;
 
   @override
   ConsumerState<RewardsManagementScreen> createState() =>
@@ -192,12 +198,17 @@ class _RewardsManagementScreenState
     return LoyaloAuthScaffold(
       onBack: busy ? null : _leave,
       showBackButton: false,
-      headerBuilder: (context, compact, veryCompact) => LoyaloProgramHeader(
-        draft: restaurant.needsLoyaltySetup,
-        compact: compact,
-        veryCompact: veryCompact,
-        onBack: busy ? null : _leave,
-      ),
+      headerBuilder: (context, compact, veryCompact) => widget.embedded
+          ? const Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: LoyaloPageHeader(title: 'Récompenses', centerTitle: false),
+            )
+          : LoyaloProgramHeader(
+              draft: restaurant.needsLoyaltySetup,
+              compact: compact,
+              veryCompact: veryCompact,
+              onBack: busy ? null : _leave,
+            ),
       contentBuilder: (context, compact) => LoyaloAuthSurface(
         compact: true,
         child: Form(

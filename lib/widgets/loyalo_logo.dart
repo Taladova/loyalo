@@ -1,8 +1,37 @@
 import 'package:flutter/material.dart';
 
+/// Version compacte du logo officiel V3 : seule la zone du slogan est masquée.
+/// Aucun asset n'est recréé et les proportions du logo restent inchangées.
+class LoyaloMerchantBrand extends StatelessWidget {
+  const LoyaloMerchantBrand({super.key, required this.width});
+  final double width;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    image: true,
+    label: 'Loyalo',
+    child: ExcludeSemantics(
+      child: ClipRect(
+        child: Align(
+          alignment: Alignment.topCenter,
+          widthFactor: 1,
+          heightFactor: 0.74,
+          child: Image.asset(
+            'assets/images/logo_loyalo_v3_light.png',
+            width: width,
+            fit: BoxFit.contain,
+            cacheWidth: (width * MediaQuery.devicePixelRatioOf(context)).ceil(),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 /// Marque discrète des accueils, issue du monogramme officiel existant.
 class LoyaloDashboardMark extends StatelessWidget {
-  const LoyaloDashboardMark({super.key});
+  const LoyaloDashboardMark({super.key, this.size = 48});
+  final double size;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -10,11 +39,11 @@ class LoyaloDashboardMark extends StatelessWidget {
     label: 'Loyalo',
     child: ExcludeSemantics(
       child: SizedBox.square(
-        dimension: 48,
+        dimension: size,
         child: Image.asset(
           'assets/images/app_icon_foreground.png',
           fit: BoxFit.contain,
-          cacheWidth: (48 * MediaQuery.devicePixelRatioOf(context)).ceil(),
+          cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).ceil(),
         ),
       ),
     ),

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:drift/drift.dart' hide Query;
+import 'package:flutter/foundation.dart';
+import '../../../core/data/repository_read_state.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/pending_action_payload.dart';
 import '../../../core/database/tables/local_check_ins.dart';
@@ -79,6 +81,10 @@ class CheckInRepository {
   Object? _loadError;
   CheckInSyncService get syncService => _syncService;
   Object? get loadError => _loadError;
+  final _readState = ValueNotifier<RepositoryReadState>(
+    const RepositoryReadState.unavailable(),
+  );
+  ValueListenable<RepositoryReadState> get readState => _readState;
   List<CheckInRequest> get checkIns => List.unmodifiable(_checkIns);
   void attachSynchronizer(Future<void> Function(String) value) =>
       _synchronize = value;
@@ -89,12 +95,14 @@ class CheckInRepository {
     String? ownerUid,
   }) {
     if (restaurantId == null) {
+      _readState.value = const RepositoryReadState.loading();
       Query<Map<String, dynamic>> query = _firestore.collection('checkIns');
       if (customerId != null) {
         query = query.where('customerId', isEqualTo: customerId);
       }
       return query.snapshots().map((snapshot) {
         _checkIns = snapshot.docs.map(CheckInRequest.fromFirestore).toList();
+        _readState.value = const RepositoryReadState.ready();
         return checkIns;
       });
     }
@@ -103,8 +111,24 @@ class CheckInRepository {
     late StreamController<List<CheckInRequest>> controller;
     StreamSubscription<List<LocalCheckIn>>? localSub;
     StreamSubscription<List<CheckInRequest>>? remoteSub;
+    var active = true;
+    var localReady = false;
+    var remoteReady = false;
+    Object? localError;
+    Object? remoteError;
+    void publishReadState() {
+      if (!active) return;
+      final error = localError ?? remoteError;
+      _readState.value = error != null
+          ? RepositoryReadState.error(error)
+          : localReady && remoteReady
+          ? const RepositoryReadState.ready()
+          : const RepositoryReadState.loading();
+    }
+
     controller = StreamController<List<CheckInRequest>>(
       onListen: () {
+        publishReadState();
         localSub = _database.checkInDao
             .watchPendingCheckInsForMerchant(restaurantId, owner)
             .listen(
@@ -115,9 +139,14 @@ class CheckInRepository {
                     .map(CheckInMapper.fromLocal)
                     .toList();
                 controller.add(checkIns);
+                localReady = true;
+                localError = null;
+                publishReadState();
               },
               onError: (Object error, StackTrace stackTrace) {
                 _loadError = error;
+                localError = error;
+                publishReadState();
                 controller.addError(error, stackTrace);
               },
             );
@@ -128,8 +157,13 @@ class CheckInRepository {
                 try {
                   _loadError = null;
                   await _reconcile(items, owner);
+                  remoteReady = true;
+                  remoteError = null;
+                  publishReadState();
                 } catch (error, stackTrace) {
                   _loadError = error;
+                  remoteError = error;
+                  publishReadState();
                   if (!controller.isClosed) {
                     controller.addError(error, stackTrace);
                   }
@@ -137,6 +171,8 @@ class CheckInRepository {
               },
               onError: (Object error, StackTrace stackTrace) {
                 _loadError = error;
+                remoteError = error;
+                publishReadState();
                 if (!controller.isClosed) {
                   controller.addError(error, stackTrace);
                 }
@@ -144,6 +180,7 @@ class CheckInRepository {
             );
       },
       onCancel: () async {
+        active = false;
         await localSub?.cancel();
         await remoteSub?.cancel();
       },

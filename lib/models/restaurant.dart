@@ -194,6 +194,9 @@ class Restaurant {
   final RestaurantStatus status;
   final Map<String, OpeningHours> openingHours;
 
+  /// Présence réelle du champ dans le document, distincte des horaires par défaut.
+  final bool hasSavedOpeningHours;
+
   const Restaurant({
     required this.id,
     required this.name,
@@ -230,12 +233,16 @@ class Restaurant {
     this.ownerId,
     this.status = RestaurantStatus.active,
     this.openingHours = kDefaultOpeningHours,
+    this.hasSavedOpeningHours = false,
   });
 
   factory Restaurant.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!;
+    return Restaurant.fromMap(doc.id, doc.data()!);
+  }
+
+  factory Restaurant.fromMap(String id, Map<String, dynamic> data) {
     return Restaurant(
-      id: doc.id,
+      id: id,
       name: data['name'] as String? ?? '',
       cuisine: data['cuisine'] as String? ?? '',
       category:
@@ -284,6 +291,7 @@ class Restaurant {
       ownerId: data['ownerId'] as String?,
       status: RestaurantStatusX.fromFirestore(data['status'] as String?),
       openingHours: _openingHoursFromFirestore(data['openingHours']),
+      hasSavedOpeningHours: _hasSavedOpeningHours(data['openingHours']),
     );
   }
 
@@ -355,6 +363,7 @@ class Restaurant {
       ownerId: ownerId ?? this.ownerId,
       status: status ?? this.status,
       openingHours: openingHours ?? this.openingHours,
+      hasSavedOpeningHours: hasSavedOpeningHours,
     );
   }
 
@@ -406,5 +415,21 @@ class Restaurant {
       for (final day in kDefaultOpeningHours.keys)
         day: OpeningHours.fromMap(data[day] as Map<String, dynamic>?),
     };
+  }
+
+  static bool _hasSavedOpeningHours(Object? data) {
+    if (data is! Map) return false;
+    return kDefaultOpeningHours.keys.any((day) {
+      final hours = data[day];
+      if (hours is! Map || hours['open'] is! bool) return false;
+      if (hours['open'] == false) return true;
+      final opens = hours['opensAt'];
+      final closes = hours['closesAt'];
+      final format = RegExp(r'^\d{2}:\d{2}$');
+      return opens is String &&
+          closes is String &&
+          format.hasMatch(opens) &&
+          format.hasMatch(closes);
+    });
   }
 }

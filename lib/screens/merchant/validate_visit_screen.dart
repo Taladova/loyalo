@@ -9,7 +9,7 @@ import '../../services/loyalty_repository.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loyalo_auth_ui.dart';
 import '../../widgets/loyalo_visit_validation_ui.dart';
-import 'client_search_screen.dart';
+import 'visit_client_search_pane.dart';
 
 class ValidateVisitScreen extends ConsumerStatefulWidget {
   const ValidateVisitScreen({super.key});
@@ -22,7 +22,7 @@ class ValidateVisitScreen extends ConsumerStatefulWidget {
 class _ValidateVisitScreenState extends ConsumerState<ValidateVisitScreen> {
   // Le scanner ne devient initial qu'après activation du service sécurisé.
   LoyaloVisitMethod _method = LoyaloVisitMethod.code;
-  bool _openingSearch = false;
+  bool _searchBusy = false;
   final _methodPaneKey = GlobalKey();
   String _digits = '';
   bool _validating = false;
@@ -125,41 +125,22 @@ class _ValidateVisitScreenState extends ConsumerState<ValidateVisitScreen> {
   }
 
   Future<void> _selectMethod(LoyaloVisitMethod method) async {
-    if (_validating || _openingSearch) return;
-    if (method != LoyaloVisitMethod.search) {
-      setState(() => _method = method);
-      if (MediaQuery.textScalerOf(context).scale(16) > 23) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return;
-          final pane = _methodPaneKey.currentContext;
-          if (pane == null) return;
-          Scrollable.ensureVisible(
-            pane,
-            alignment: 0,
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : const Duration(milliseconds: 180),
-          );
-        });
-      }
-      return;
-    }
-    final previous = _method;
-    setState(() {
-      _method = method;
-      _openingSearch = true;
-    });
-    try {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const ClientSearchScreen()),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _method = previous;
-          _openingSearch = false;
-        });
-      }
+    if (_validating || _searchBusy) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _method = method);
+    if (MediaQuery.textScalerOf(context).scale(16) > 23) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return;
+        final pane = _methodPaneKey.currentContext;
+        if (pane == null) return;
+        Scrollable.ensureVisible(
+          pane,
+          alignment: 0,
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 180),
+        );
+      });
     }
   }
 
@@ -206,49 +187,58 @@ class _ValidateVisitScreenState extends ConsumerState<ValidateVisitScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => LoyaloAuthScaffold(
-    onBack: () => Navigator.of(context).maybePop(),
-    showBackButton: false,
-    headerBuilder: (context, compact, veryCompact) => Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-      child: LoyaloPageHeader(
-        title: 'Valider une visite',
-        showBackButton: Navigator.of(context).canPop(),
-        onBack: () => Navigator.of(context).maybePop(),
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_searchBusy,
+    child: LoyaloAuthScaffold(
+      onBack: () => Navigator.of(context).maybePop(),
+      showBackButton: false,
+      headerBuilder: (context, compact, veryCompact) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+        child: LoyaloPageHeader(
+          title: 'Valider une visite',
+          showBackButton: Navigator.of(context).canPop(),
+          onBack: () => Navigator.of(context).maybePop(),
+        ),
       ),
-    ),
-    contentBuilder: (context, compact) => Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        LoyaloVisitMethodSelector(
-          selected: _method,
-          enabled: !_validating && !_openingSearch,
-          onSelected: _selectMethod,
-        ),
-        const SizedBox(height: 12),
-        KeyedSubtree(
-          key: _methodPaneKey,
-          child: _method == LoyaloVisitMethod.scanner
-              ? LoyaloVisitQrUnavailable(
-                  client: false,
-                  onCode: () => _selectMethod(LoyaloVisitMethod.code),
-                  onSearch: () => _selectMethod(LoyaloVisitMethod.search),
-                )
-              : Focus(
-                  onKeyEvent: _handleCodeKey,
-                  child: LoyaloVisitCodePane(
-                    digits: _digits,
-                    loading: _validating,
-                    onDigit: _tapDigit,
-                    onBackspace: _backspace,
-                    onPaste: _pasteCode,
-                    onValidate: _digits.length == 6 && !_validating
-                        ? _validate
-                        : null,
+      contentBuilder: (context, compact) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LoyaloVisitMethodSelector(
+            selected: _method,
+            enabled: !_validating && !_searchBusy,
+            onSelected: _selectMethod,
+          ),
+          const SizedBox(height: 12),
+          KeyedSubtree(
+            key: _methodPaneKey,
+            child: _method == LoyaloVisitMethod.scanner
+                ? LoyaloVisitQrUnavailable(
+                    client: false,
+                    onCode: () => _selectMethod(LoyaloVisitMethod.code),
+                    onSearch: () => _selectMethod(LoyaloVisitMethod.search),
+                  )
+                : _method == LoyaloVisitMethod.search
+                ? VisitClientSearchPane(
+                    onBusyChanged: (busy) {
+                      if (mounted) setState(() => _searchBusy = busy);
+                    },
+                  )
+                : Focus(
+                    onKeyEvent: _handleCodeKey,
+                    child: LoyaloVisitCodePane(
+                      digits: _digits,
+                      loading: _validating,
+                      onDigit: _tapDigit,
+                      onBackspace: _backspace,
+                      onPaste: _pasteCode,
+                      onValidate: _digits.length == 6 && !_validating
+                          ? _validate
+                          : null,
+                    ),
                   ),
-                ),
-        ),
-      ],
+          ),
+        ],
+      ),
     ),
   );
 }

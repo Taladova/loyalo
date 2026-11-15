@@ -4,12 +4,22 @@ Application mobile de fidélité pour les commerçants indépendants (restaurant
 
 Stack : Flutter + Riverpod (état), Firebase Auth + Cloud Firestore (backend temps réel), `flutter_map` (carte, OpenStreetMap), CI/CD via GitHub Actions.
 
+La base Loyalo V3 est conservée sur `feature/offline-first`. Le [rapport de stabilisation](docs/LOYALO_V3_RELEASE.md) décrit les vérifications, les limites connues et les conditions de livraison officielle. Le développement Réseau Local n’a pas commencé.
+
 ## Démarrer le projet
+
+Utiliser Flutter **3.47.1** / Dart **3.13.1**, versions de la vérification V3. Le verrou de dépendances exige au minimum Flutter 3.44 et Dart 3.12. Pour la recette mobile Pilot avec des comptes de test :
 
 ```bash
 flutter pub get
-flutter run
+flutter run --flavor pilot \
+  --dart-define=LOYALO_FIREBASE_ENV=pilot \
+  --dart-define=LOYALO_FIREBASE_PROJECT_ID=loyalo-pilot \
+  --dart-define=LOYALO_SECURE_APPROVE_CHECKIN=true \
+  --dart-define=LOYALO_SECURE_REJECT_CHECKIN=true
 ```
+
+L’environnement est obligatoire ; une configuration Pilot invalide ne bascule pas vers Production. Les configurations natives Pilot versionnées contiennent les identifiants publics du SDK Firebase, pas de compte de service. Les paramètres privés locaux restent exclus de Git. Voir les [environnements Firebase](config/firebase/README.md) et les limitations du [rapport V3](docs/LOYALO_V3_RELEASE.md) avant la recette.
 
 Version web déployée : https://loyalo-app.web.app
 
@@ -95,4 +105,4 @@ Composants réutilisables :
 
 ## CI/CD
 
-`.github/workflows/ci.yml` — à chaque push/PR sur `main` : analyse statique (`flutter analyze`), tests (`flutter test`), puis build Android (APK) et build iOS (sans signature) en parallèle.
+`.github/workflows/ci.yml` — sur les pushes `main` / `feature/offline-first` et les PR vers `main` : formatage, analyse et tests Flutter, puis tests Node et Firebase Emulator sur le projet local `demo-loyalo-v2`. Les builds Android et iOS utilisent explicitement le flavor Pilot et les callables sécurisées. L’APK de vérification Android utilise la configuration de signature de développement existante ; il n’est pas destiné aux stores. Aucun job ne déploie Firebase, ne publie sur les stores ou ne fusionne les branches.

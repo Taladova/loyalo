@@ -8,7 +8,7 @@ import 'client_search_screen.dart';
 import 'merchant_dashboard_screen.dart';
 import 'offers_management_screen.dart';
 import 'rewards_management_screen.dart';
-import 'statistics_screen.dart';
+import '../../widgets/loyalo_auth_ui.dart';
 import 'validate_visit_screen.dart';
 
 class MerchantRootScreen extends ConsumerStatefulWidget {
@@ -25,9 +25,8 @@ class _MerchantRootScreenState extends ConsumerState<MerchantRootScreen> {
     MerchantDashboardScreen(),
     ClientSearchScreen(),
     ValidateVisitScreen(),
-    RewardsManagementScreen(),
+    RewardsManagementScreen(embedded: true),
     OffersManagementScreen(),
-    StatisticsScreen(),
   ];
 
   static const _items = [
@@ -36,7 +35,6 @@ class _MerchantRootScreenState extends ConsumerState<MerchantRootScreen> {
     NavItemData(icon: Icons.check_circle_outline, label: 'Valider'),
     NavItemData(icon: Icons.card_giftcard_outlined, label: 'Récompenses'),
     NavItemData(icon: Icons.local_fire_department_outlined, label: 'Offres'),
-    NavItemData(icon: Icons.bar_chart, label: 'Stats'),
   ];
 
   @override
@@ -46,6 +44,7 @@ class _MerchantRootScreenState extends ConsumerState<MerchantRootScreen> {
     final available =
         restaurantId != null && repo.restaurantByIdOrNull(restaurantId) != null;
     return Scaffold(
+      backgroundColor: LoyaloAuthColors.navy,
       // Les autres pages exigent un commerce chargé. Pendant une erreur ou
       // une session absente, seul le dashboard peut présenter cet état.
       body: available

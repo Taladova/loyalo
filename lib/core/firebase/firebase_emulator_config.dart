@@ -27,7 +27,8 @@ abstract final class FirebaseEmulatorConfig {
   }
 
   static const firebaseOptions = FirebaseOptions(
-    apiKey: 'demo-api-key',
+    // Valeur factice au format exigé par Firebase Installations Android.
+    apiKey: 'AIzaSy000000000000000000000000000000000',
     appId: '1:1234567890:ios:demo-loyalo-v2',
     messagingSenderId: '1234567890',
     projectId: projectId,

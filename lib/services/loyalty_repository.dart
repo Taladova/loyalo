@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../core/database/app_database.dart';
+import '../core/data/repository_read_state.dart';
 import '../core/database/tables/local_visits.dart';
 import '../core/network/network_monitor.dart';
 import '../features/checkins/data/checkin_repository.dart';
@@ -17,7 +18,10 @@ import '../models/referral.dart';
 import '../models/reward.dart';
 import '../models/reward_definition.dart';
 import '../models/restaurant.dart';
+import '../models/restaurant_profile_section.dart';
 import '../models/visit.dart';
+
+enum StatisticsDataSource { visits, rewards, offers, checkIns, referrals }
 
 enum VisitOutcome { validated, alreadyValidatedToday, rewardUnlocked }
 
@@ -168,6 +172,8 @@ class LoyaltyRepository extends ChangeNotifier {
           checkInSyncService: _checkInRepository.syncService,
           clock: _clock,
         );
+    _visitRepository.readState.addListener(_onStatisticsReadChanged);
+    _checkInRepository.readState.addListener(_onStatisticsReadChanged);
     _checkInRepository.attachSynchronizer(
       (owner) => _visitRepository.retryPendingVisits(ownerScopeId: owner),
     );
@@ -201,6 +207,32 @@ class LoyaltyRepository extends ChangeNotifier {
   List<LoyaloNotification> _notifications = [];
 
   Object? get checkInsLoadError => _checkInsLoadError;
+
+  final _statisticsReads = <StatisticsDataSource, RepositoryReadState>{};
+
+  /// État des lectures existantes ; ne déclenche aucune nouvelle requête.
+  RepositoryReadState statisticsReadState(StatisticsDataSource source) {
+    if (!_listening) return const RepositoryReadState.unavailable();
+    return switch (source) {
+      StatisticsDataSource.visits => _visitRepository.readState.value,
+      StatisticsDataSource.checkIns =>
+        _checkInsLoadError != null
+            ? RepositoryReadState.error(_checkInsLoadError)
+            : _checkInRepository.readState.value,
+      _ => _statisticsReads[source] ?? const RepositoryReadState.unavailable(),
+    };
+  }
+
+  void _onStatisticsReadChanged() {
+    if (!_listening) return;
+    _checkInsLoadError = _checkInRepository.loadError;
+    notifyListeners();
+  }
+
+  void _statisticsReadFailed(StatisticsDataSource source, Object error) {
+    _statisticsReads[source] = RepositoryReadState.error(error);
+    notifyListeners();
+  }
 
   /// État de lecture de l'annuaire autorisé de la session commerçant.
   bool get merchantClientsLoading => _merchantClientsLoading;
@@ -244,6 +276,17 @@ class LoyaltyRepository extends ChangeNotifier {
   }) {
     if (_listening) return;
     _listening = true;
+    _statisticsReads
+      ..clear()
+      ..addAll({
+        StatisticsDataSource.rewards: const RepositoryReadState.loading(),
+        StatisticsDataSource.offers: const RepositoryReadState.loading(),
+        // Les deux requêtes client ne constituent pas l'annuaire d'un commerce.
+        StatisticsDataSource.referrals:
+            clientId == null && merchantRestaurantId == null
+            ? const RepositoryReadState.loading()
+            : const RepositoryReadState.unavailable(),
+      });
     _listeningClientId = clientId;
     _listeningMerchantRestaurantId = merchantRestaurantId;
     _listeningMerchantOwnerUid = merchantOwnerUid;
@@ -323,10 +366,16 @@ class LoyaltyRepository extends ChangeNotifier {
                     .where('restaurantId', isEqualTo: merchantRestaurantId)
               : _db.collection('rewards'))
           .snapshots()
-          .listen((snap) {
-            _rewardItems = snap.docs.map(RewardItem.fromFirestore).toList();
-            notifyListeners();
-          }, onError: (_) {}),
+          .listen(
+            (snap) {
+              _rewardItems = snap.docs.map(RewardItem.fromFirestore).toList();
+              _statisticsReads[StatisticsDataSource.rewards] =
+                  const RepositoryReadState.ready();
+              notifyListeners();
+            },
+            onError: (Object error) =>
+                _statisticsReadFailed(StatisticsDataSource.rewards, error),
+          ),
     );
 
     _subscriptions.add(
@@ -349,12 +398,18 @@ class LoyaltyRepository extends ChangeNotifier {
                     .where('restaurantId', isEqualTo: merchantRestaurantId)
               : _db.collection('exclusiveOffers'))
           .snapshots()
-          .listen((snap) {
-            _exclusiveOffers = snap.docs
-                .map(ExclusiveOffer.fromFirestore)
-                .toList();
-            notifyListeners();
-          }, onError: (_) {}),
+          .listen(
+            (snap) {
+              _exclusiveOffers = snap.docs
+                  .map(ExclusiveOffer.fromFirestore)
+                  .toList();
+              _statisticsReads[StatisticsDataSource.offers] =
+                  const RepositoryReadState.ready();
+              notifyListeners();
+            },
+            onError: (Object error) =>
+                _statisticsReadFailed(StatisticsDataSource.offers, error),
+          ),
     );
 
     _subscriptions.add(
@@ -583,10 +638,16 @@ class LoyaltyRepository extends ChangeNotifier {
 
   void _listenAllReferrals() {
     _subscriptions.add(
-      _db.collection('referrals').snapshots().listen((snap) {
-        _referrals = snap.docs.map(ReferredFriend.fromFirestore).toList();
-        notifyListeners();
-      }, onError: (_) {}),
+      _db.collection('referrals').snapshots().listen(
+        (snap) {
+          _referrals = snap.docs.map(ReferredFriend.fromFirestore).toList();
+          _statisticsReads[StatisticsDataSource.referrals] =
+              const RepositoryReadState.ready();
+          notifyListeners();
+        },
+        onError: (Object error) =>
+            _statisticsReadFailed(StatisticsDataSource.referrals, error),
+      ),
     );
   }
 
@@ -642,10 +703,13 @@ class LoyaltyRepository extends ChangeNotifier {
     _restaurantsLoadError = null;
     _checkInsLoadError = null;
     _listening = false;
+    _statisticsReads.clear();
   }
 
   @override
   void dispose() {
+    _visitRepository.readState.removeListener(_onStatisticsReadChanged);
+    _checkInRepository.readState.removeListener(_onStatisticsReadChanged);
     _merchantClientsReadVersion++;
     unawaited(_visitRepository.stopAutomaticSync());
     for (final s in _subscriptions) {
@@ -1083,6 +1147,134 @@ class LoyaltyRepository extends ChangeNotifier {
         if (current.id == restaurant.id) next else current,
     ];
     notifyListeners();
+  }
+
+  /// Mise à jour indépendante d'une rubrique, sans réécrire le reste du document.
+  Future<Restaurant> updateRestaurantSection({
+    required String restaurantId,
+    required String ownerId,
+    required RestaurantProfileSection section,
+    required Map<String, dynamic> changes,
+    Map<String, dynamic> previousValues = const {},
+  }) async {
+    if (ownerId.isEmpty) throw StateError('Session expirée. Reconnectez-vous.');
+    if (changes.isEmpty ||
+        changes.keys.any((key) => !section.fields.contains(key))) {
+      throw ArgumentError('Champs non autorisés pour cette rubrique.');
+    }
+    for (final entry in changes.entries) {
+      final value = entry.value;
+      if (section == RestaurantProfileSection.hours) {
+        if (value is! Map ||
+            value['open'] is! bool ||
+            value['opensAt'] is! String ||
+            value['closesAt'] is! String ||
+            value.keys.any(
+              (key) => !{'open', 'opensAt', 'closesAt'}.contains(key),
+            ) ||
+            (value['open'] == true &&
+                (!RegExp(
+                      r'^\d{2}:\d{2}$',
+                    ).hasMatch(value['opensAt'] as String) ||
+                    !RegExp(
+                      r'^\d{2}:\d{2}$',
+                    ).hasMatch(value['closesAt'] as String)))) {
+          throw ArgumentError('Horaires invalides : utilisez HH:MM.');
+        }
+      } else if (entry.key == 'active') {
+        if (value is! bool) throw ArgumentError('Statut invalide.');
+      } else if (entry.key == 'galleryUrls') {
+        if (value is! List ||
+            value.any((url) => url is! String) ||
+            value.length > 8) {
+          throw ArgumentError('La galerie est limitée à 8 images.');
+        }
+      } else if (section == RestaurantProfileSection.photos) {
+        if (value != null && value is! String) {
+          throw ArgumentError('Image invalide.');
+        }
+      } else if (value is! String) {
+        throw ArgumentError('Information invalide.');
+      }
+    }
+    if (changes.containsKey('name') &&
+        (changes['name'] as String).trim().isEmpty) {
+      throw ArgumentError('Nom obligatoire');
+    }
+    if (changes.containsKey('email') &&
+        validateEstablishmentEmail(changes['email']) != null) {
+      throw ArgumentError('Email invalide');
+    }
+    if (changes.containsKey('website') &&
+        validateEstablishmentWebsite(changes['website']) != null) {
+      throw ArgumentError('Site invalide');
+    }
+    final doc = _db.collection('restaurants').doc(restaurantId);
+    final updated = await _db.runTransaction<Restaurant>((transaction) async {
+      final snapshot = await transaction.get(doc);
+      if (!snapshot.exists) {
+        throw StateError('Votre commerce est indisponible.');
+      }
+      final data = snapshot.data()!;
+      final current = Restaurant.fromFirestore(snapshot);
+      if (current.ownerId != null && current.ownerId != ownerId) {
+        throw StateError('Ce commerce appartient à un autre compte.');
+      }
+      final currentValues = restaurantProfileValues(current);
+      for (final key in changes.keys) {
+        if (previousValues.containsKey(key) &&
+            !profileValueEquals(currentValues[key], previousValues[key])) {
+          throw StateError(
+            'Cette information a changé depuis l’ouverture de la rubrique. '
+            'Revenez à la fiche pour la recharger avant de réessayer.',
+          );
+        }
+      }
+      final values = Map<String, dynamic>.of(changes);
+      if (section == RestaurantProfileSection.visibility) {
+        final activate = values['active'] as bool;
+        if (activate &&
+            (current.needsLoyaltySetup ||
+                current.status == RestaurantStatus.pendingReview ||
+                current.status == RestaurantStatus.suspended)) {
+          throw StateError(
+            current.needsLoyaltySetup
+                ? 'Configurez votre programme de fidélité avant de publier votre commerce.'
+                : 'Le statut actuel ne permet pas d’activer ce commerce.',
+          );
+        }
+        values['status'] =
+            (current.status == RestaurantStatus.pendingReview ||
+                current.status == RestaurantStatus.suspended)
+            ? current.status.firestoreValue
+            : activate
+            ? RestaurantStatus.active.firestoreValue
+            : RestaurantStatus.draft.firestoreValue;
+      }
+      if (current.ownerId == null) values['ownerId'] = ownerId;
+      final merged = Map<String, dynamic>.of(data);
+      final writes = <String, dynamic>{
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      for (final entry in values.entries) {
+        writes[entry.key] = entry.value ?? FieldValue.delete();
+        if (entry.key.startsWith('openingHours.')) {
+          final hours = Map<String, dynamic>.from(
+            merged['openingHours'] as Map? ?? const {},
+          );
+          hours[entry.key.split('.').last] = entry.value;
+          merged['openingHours'] = hours;
+        } else if (entry.value == null) {
+          merged.remove(entry.key);
+        } else {
+          merged[entry.key] = entry.value;
+        }
+      }
+      transaction.update(doc, writes);
+      return Restaurant.fromMap(restaurantId, merged);
+    });
+    _cacheRestaurant(updated);
+    return updated;
   }
 
   Future<void> updateRestaurantImages({
@@ -2199,6 +2391,19 @@ class LoyaltyRepository extends ChangeNotifier {
         .limit(1)
         .get();
     return snap.docs.firstOrNull?.id;
+  }
+
+  /// Relit les valeurs existantes ; n'écrit ni profil client ni préférence.
+  Future<Map<String, bool>> loadMerchantNotificationPreferences(
+    String userId,
+  ) async {
+    if (userId.isEmpty) throw StateError('Session commerçant indisponible.');
+    final snapshot = await _db.collection('users').doc(userId).get();
+    final values = snapshot.data()?['notificationPreferences'];
+    return {
+      for (final key in ['merchantCheckIns', 'important'])
+        key: values is Map && values[key] is bool ? values[key] as bool : true,
+    };
   }
 
   Future<void> updateNotificationPreference({

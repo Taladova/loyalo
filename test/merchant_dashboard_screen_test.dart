@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:loyalo/models/check_in_request.dart';
 import 'package:loyalo/providers/app_providers.dart';
 import 'package:loyalo/screens/merchant/activity_history_screen.dart';
 import 'package:loyalo/screens/merchant/client_search_screen.dart';
 import 'package:loyalo/screens/merchant/merchant_dashboard_screen.dart';
+import 'package:loyalo/screens/merchant/merchant_establishment_screen.dart';
 import 'package:loyalo/screens/merchant/merchant_root_screen.dart';
 import 'package:loyalo/screens/merchant/merchant_settings_screen.dart';
 import 'package:loyalo/screens/merchant/offers_management_screen.dart';
@@ -20,7 +22,10 @@ import 'package:loyalo/screens/merchant/validate_visit_screen.dart';
 import 'package:loyalo/screens/notifications_screen.dart';
 import 'package:loyalo/services/loyalty_repository.dart';
 import 'package:loyalo/widgets/loyalo_merchant_dashboard_ui.dart';
+import 'package:loyalo/widgets/loyalo_auth_ui.dart';
 import 'package:loyalo/widgets/main_bottom_nav.dart';
+import 'package:loyalo/widgets/loyalo_logo.dart';
+import 'package:loyalo/widgets/loyalo_ui.dart';
 
 import 'support/merchant_dashboard_fixture.dart';
 
@@ -37,7 +42,6 @@ const _navItems = [
   NavItemData(icon: Icons.check_circle_outline, label: 'Valider'),
   NavItemData(icon: Icons.card_giftcard_outlined, label: 'Récompenses'),
   NavItemData(icon: Icons.local_fire_department_outlined, label: 'Offres'),
-  NavItemData(icon: Icons.bar_chart, label: 'Stats'),
 ];
 
 Future<({DashboardTestRepository repo, _Observer observer})> _pump(
@@ -103,9 +107,6 @@ Future<void> _reach(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
-Finder _quick(String label) =>
-    find.byWidgetPredicate((w) => w is LoyaloQuickAction && w.label == label);
-
 void _expectMetric(WidgetTester tester, String key, String value) {
   final metric = tester.widget<LoyaloMetricCard>(
     find.byKey(Key('dashboard-$key')),
@@ -121,6 +122,13 @@ void main() {
     FirebaseAuthPlatform.instance = auth;
   });
   setUp(() {
+    PackageInfo.setMockInitialValues(
+      appName: 'Loyalo',
+      packageName: 'com.loyalo.test',
+      version: '17.0.0',
+      buildNumber: '17',
+      buildSignature: '',
+    );
     auth.name = 'Camille';
     auth.signedIn = true;
   });
@@ -129,7 +137,12 @@ void main() {
     'Données dynamiques, périmètre commerce et statistiques visibles',
     (tester) async {
       final f = await _pump(tester, root: true);
-      expect(find.text('Bonjour Camille'), findsOneWidget);
+      expect(find.textContaining('Bonjour'), findsNothing);
+      expect(find.byType(LoyaloMerchantBrand), findsNothing);
+      expect(find.byType(LoyaloDashboardMark), findsOneWidget);
+      expect(find.byTooltip('Déconnexion'), findsNothing);
+      expect(find.byTooltip('Statistiques'), findsOneWidget);
+      expect(find.byTooltip('Paramètres'), findsOneWidget);
       expect(find.text('Maison du coin'), findsOneWidget);
       expect(find.text('Boulangerie'), findsOneWidget);
       expect(find.text('Liam'), findsNothing);
@@ -171,9 +184,8 @@ void main() {
         return provider is AssetImage &&
             provider.assetName.endsWith('merchant_dashboard_hero.png');
       });
-      expect(hero, findsOneWidget);
-      expect(tester.widget<Image>(hero).fit, BoxFit.contain);
-      expect(tester.getSize(hero).height, lessThanOrEqualTo(100));
+      expect(hero, findsNothing);
+      expect(find.byKey(const Key('dashboard-establishment')), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -330,7 +342,7 @@ void main() {
   });
 
   testWidgets(
-    'Le conteneur des six onglets protège les pages sans commerce chargé',
+    'Le conteneur des cinq onglets protège les pages sans commerce chargé',
     (tester) async {
       final repo = DashboardTestRepository()
         ..hasRestaurant = false
@@ -529,13 +541,11 @@ void main() {
   });
 
   final routes = <String, Type>{
-    'Valider une visite': ValidateVisitScreen,
-    'Mes clients': ClientSearchScreen,
-    'Créer une offre': OffersManagementScreen,
-    'Mes récompenses': RewardsManagementScreen,
     'Voir tout': ActivityHistoryScreen,
     'Notifications': NotificationsScreen,
-    'Profil et paramètres': MerchantSettingsScreen,
+    'Paramètres': MerchantSettingsScreen,
+    'Statistiques': StatisticsScreen,
+    'Mon établissement': MerchantEstablishmentScreen,
     'Voir les arrivées': ValidateVisitScreen,
   };
   for (final entry in routes.entries) {
@@ -546,10 +556,10 @@ void main() {
       }
       final f = await _pump(tester, repository: repo);
       final finder =
-          entry.key == 'Notifications' || entry.key == 'Profil et paramètres'
+          entry.key == 'Notifications' ||
+              entry.key == 'Paramètres' ||
+              entry.key == 'Statistiques'
           ? find.byTooltip(entry.key)
-          : routes.keys.take(4).contains(entry.key)
-          ? _quick(entry.key)
           : find.text(entry.key);
       await _reach(tester, finder);
       final context = tester.element(find.byType(MerchantDashboardScreen));
@@ -563,7 +573,57 @@ void main() {
   }
 
   testWidgets(
-    'Les six onglets du conteneur conservent leur écran et leur ordre',
+    'Accueil garde Mon établissement ; Paramètres se concentre sur le compte, retour et période préservés',
+    (tester) async {
+      await _pump(tester, root: true);
+      await tester.tap(find.byKey(const Key('dashboard-period')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('7 derniers jours').last);
+      await tester.pumpAndSettle();
+      await _reach(tester, find.byKey(const Key('dashboard-establishment')));
+      await tester.tap(find.byKey(const Key('dashboard-establishment')));
+      await tester.pumpAndSettle();
+      expect(find.byType(MerchantEstablishmentScreen), findsOneWidget);
+      await _reach(
+        tester,
+        find.byKey(const Key('establishment-section-general')),
+      );
+      await tester.tap(find.byKey(const Key('establishment-section-general')));
+      await tester.pumpAndSettle();
+      final name = find.byWidgetPredicate(
+        (w) => w is TextFormField && w.controller?.text == 'Maison du coin',
+      );
+      expect(name, findsOneWidget);
+      await _reach(tester, find.byType(LoyaloAuthBackButton));
+      await tester.tap(find.byType(LoyaloAuthBackButton));
+      await tester.pumpAndSettle();
+      await _reach(tester, find.byType(LoyaloAuthBackButton));
+      await tester.tap(find.byType(LoyaloAuthBackButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(MerchantDashboardScreen), findsOneWidget);
+      expect(find.text('7 derniers jours'), findsOneWidget);
+      await _reach(tester, find.byTooltip('Paramètres'));
+      await tester.tap(find.byTooltip('Paramètres'));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(MerchantSettingsScreen), findsOneWidget);
+      expect(find.text('Restaurant'), findsNothing);
+      expect(find.text('Mon établissement'), findsNothing);
+      expect(find.text('Compte et sécurité'), findsOneWidget);
+      await _reach(tester, find.byType(LoyaloAuthBackButton));
+      await tester.tap(find.byType(LoyaloAuthBackButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(MerchantDashboardScreen), findsOneWidget);
+      expect(find.text('7 derniers jours'), findsOneWidget);
+      _expectMetric(tester, 'visits', '4');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Les cinq onglets du conteneur conservent leur écran et leur ordre',
     (tester) async {
       await _pump(tester, root: true, size: const Size(430, 932));
       final nav = tester.widget<LoyaloMerchantBottomNav>(
@@ -575,7 +635,6 @@ void main() {
         'Valider',
         'Récompenses',
         'Offres',
-        'Stats',
       ]);
       final screens = [
         MerchantDashboardScreen,
@@ -583,19 +642,28 @@ void main() {
         ValidateVisitScreen,
         RewardsManagementScreen,
         OffersManagementScreen,
-        StatisticsScreen,
       ];
-      for (var i = 0; i < screens.length; i++) {
-        final currentNav = tester.widget<LoyaloMerchantBottomNav>(
-          find.byType(LoyaloMerchantBottomNav),
+      final elements = [
+        for (final screen in screens)
+          tester.element(find.byType(screen, skipOffstage: false).first),
+      ];
+      for (final i in [0, 1, 2, 3, 4, 2, 1, 0]) {
+        await tester.tap(
+          find.descendant(
+            of: find.byType(LoyaloMerchantBottomNav),
+            matching: find.byKey(ValueKey('merchant-nav-item-$i')),
+          ),
         );
-        currentNav.onTap(i);
         await tester.pumpAndSettle();
         final stack = tester.widget<IndexedStack>(
           find.byType(IndexedStack).first,
         );
         expect(stack.index, i);
         expect(stack.children[i].runtimeType, screens[i]);
+        expect(
+          tester.element(find.byType(screens[i], skipOffstage: false).first),
+          same(elements[i]),
+        );
         expect(
           tester
               .widget<LoyaloMerchantBottomNav>(
@@ -606,6 +674,34 @@ void main() {
         );
       }
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Statistiques revient à l’accueil et conserve sa période et ses données',
+    (tester) async {
+      await _pump(tester, root: true);
+      await tester.tap(find.byKey(const Key('dashboard-period')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('7 derniers jours').last);
+      await tester.pumpAndSettle();
+      _expectMetric(tester, 'visits', '4');
+      await tester.tap(find.byTooltip('Statistiques'));
+      await tester.pumpAndSettle();
+      expect(find.byType(StatisticsScreen), findsOneWidget);
+      expect(find.byType(LoyaloMerchantBottomNav), findsNothing);
+      await tester.tap(find.byType(LoyaloAuthBackButton));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<LoyaloMerchantBottomNav>(
+              find.byType(LoyaloMerchantBottomNav),
+            )
+            .selectedIndex,
+        0,
+      );
+      expect(find.text('7 derniers jours'), findsOneWidget);
+      _expectMetric(tester, 'visits', '4');
     },
   );
 
@@ -632,28 +728,41 @@ void main() {
               ? TargetPlatform.android
               : TargetPlatform.iOS,
         );
+        final establishment = find.byKey(const Key('dashboard-establishment'));
+        await _reach(tester, establishment);
+        final establishmentRect = tester.getRect(establishment);
+        expect(establishmentRect.left, greaterThanOrEqualTo(0));
+        expect(establishmentRect.right, lessThanOrEqualTo(size.width));
+        expect(establishmentRect.height, greaterThanOrEqualTo(48));
+        expect(find.text('Mon établissement'), findsOneWidget);
         for (final key in [
           'dashboard-clients',
           'dashboard-points',
           'dashboard-express',
-          'dashboard-section-actions',
           'dashboard-section-activity',
         ]) {
           await _reach(tester, find.byKey(Key(key)));
           expect(tester.takeException(), isNull);
         }
-        for (final paragraph in tester.renderObjectList<RenderParagraph>(
-          find.byType(RichText),
-        )) {
-          expect(paragraph.didExceedMaxLines, false);
+        for (final element in find.byType(RichText).evaluate()) {
+          var name = false;
+          element.visitAncestorElements((parent) {
+            if (parent.widget.key == const Key('dashboard-restaurant-name') ||
+                parent.widget.key ==
+                    const Key('dashboard-restaurant-category')) {
+              name = true;
+            }
+            return !name;
+          });
+          if (!name) {
+            expect(
+              (element.renderObject! as RenderParagraph).didExceedMaxLines,
+              false,
+            );
+          }
         }
-        for (final quick in tester.widgetList<LoyaloQuickAction>(
-          find.byType(LoyaloQuickAction),
-        )) {
-          final size = tester.getSize(_quick(quick.label));
-          expect(size.width, greaterThanOrEqualTo(48));
-          expect(size.height, greaterThanOrEqualTo(48));
-        }
+        expect(find.text('Actions rapides'), findsNothing);
+        expect(find.byType(LoyaloQuickAction), findsNothing);
         final nav = find.byType(LoyaloMerchantBottomNav);
         for (final ink
             in find
@@ -674,8 +783,9 @@ void main() {
     await _pump(tester);
     for (final label in [
       'Notifications, 2 non lues',
-      'Profil et paramètres',
-      'Déconnexion',
+      'Paramètres',
+      'Statistiques',
+      'Mon établissement',
     ]) {
       expect(
         tester
@@ -685,23 +795,88 @@ void main() {
         true,
       );
     }
-    for (final tooltip in [
-      'Notifications',
-      'Profil et paramètres',
-      'Déconnexion',
-    ]) {
+    for (final tooltip in ['Notifications', 'Paramètres', 'Statistiques']) {
       final size = tester.getSize(find.byTooltip(tooltip));
       expect(size.width, greaterThanOrEqualTo(48));
       expect(size.height, greaterThanOrEqualTo(48));
     }
-    await _reach(tester, _quick('Mes clients'));
-    expect(
-      tester
-          .getSemantics(find.bySemanticsLabel('Mes clients'))
-          .getSemanticsData()
-          .hasAction(SemanticsAction.tap),
-      true,
-    );
     handle.dispose();
   });
+
+  testWidgets(
+    'Filtre compact de 48 dp aligné à droite, trois périodes conservées',
+    (tester) async {
+      await _pump(tester);
+      final period = find.byKey(const Key('dashboard-period'));
+      final rect = tester.getRect(period);
+      expect(rect.height, 48);
+      expect(rect.width, lessThan(260));
+      final stats = tester.getRect(find.byKey(const Key('dashboard-stats')));
+      expect(rect.right, closeTo(stats.right, 0.1));
+      expect(find.text('Vue d’ensemble'), findsOneWidget);
+      await tester.tap(period);
+      await tester.pumpAndSettle();
+      for (final label in [
+        "Aujourd'hui",
+        '7 derniers jours',
+        '30 derniers jours',
+      ]) {
+        expect(find.text(label), findsWidgets);
+      }
+    },
+  );
+
+  for (final size in [const Size(320, 568), const Size(390, 844)]) {
+    for (final name in [
+      'Jo',
+      'Un très long nom de commerce conservé dans son intégralité',
+    ]) {
+      testWidgets('En-tête sur deux rangées, nom $name, ${size.width} dp', (
+        tester,
+      ) async {
+        final repo = DashboardTestRepository();
+        repo.commerce = repo.commerce.copyWith(name: name);
+        await _pump(tester, repository: repo, size: size);
+        final nameFinder = find.byKey(const Key('dashboard-restaurant-name'));
+        final text = tester.widget<Text>(nameFinder);
+        expect(text.data, name);
+        expect(text.maxLines, 1);
+        expect(text.overflow, TextOverflow.ellipsis);
+        expect(repo.commerce.name, name);
+        expect(
+          tester.renderObject<RenderParagraph>(nameFinder).didExceedMaxLines,
+          name != 'Jo',
+        );
+        final button = find.byKey(const Key('dashboard-establishment'));
+        final buttonRect = tester.getRect(button);
+        final avatarRect = tester.getRect(find.byType(LoyaloMerchantAvatar));
+        expect(buttonRect.center.dy, closeTo(avatarRect.center.dy, 0.1));
+        expect(buttonRect.left, greaterThan(tester.getRect(nameFinder).right));
+        expect(buttonRect.right, lessThanOrEqualTo(size.width - 12));
+        final buttonLabel = tester.widget<Text>(find.text('Mon établissement'));
+        expect(buttonLabel.maxLines, 1);
+        expect(buttonLabel.softWrap, false);
+        final title = find.byKey(const Key('dashboard-merchant-title-fit'));
+        final notificationRect = tester.getRect(
+          find.byTooltip('Notifications'),
+        );
+        expect(tester.getRect(title).right, lessThan(notificationRect.left));
+        expect(
+          tester.getRect(title).center.dy,
+          closeTo(notificationRect.center.dy, 0.1),
+        );
+        final image = tester.widget<Image>(
+          find.descendant(
+            of: find.byType(LoyaloDashboardMark),
+            matching: find.byType(Image),
+          ),
+        );
+        final asset = (image.image as ResizeImage).imageProvider as AssetImage;
+        expect(asset.assetName, 'assets/images/app_icon_foreground.png');
+        expect(find.textContaining('Bonjour'), findsNothing);
+        expect(find.text('Actions rapides'), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 }

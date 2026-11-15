@@ -11,7 +11,7 @@ import 'package:loyalo/models/app_user.dart';
 import 'package:loyalo/providers/app_providers.dart';
 import 'package:loyalo/screens/client/my_code_screen.dart';
 import 'package:loyalo/screens/client/my_qr_code_screen.dart';
-import 'package:loyalo/screens/merchant/client_search_screen.dart';
+import 'package:loyalo/screens/merchant/visit_client_search_pane.dart';
 import 'package:loyalo/screens/merchant/merchant_root_screen.dart';
 import 'package:loyalo/screens/merchant/validate_visit_screen.dart';
 import 'package:loyalo/services/loyalty_repository.dart';
@@ -297,7 +297,7 @@ void main() {
     });
   }
 
-  visitTest('recherche existante puis retour avec la saisie conservée', (
+  visitTest('recherche dans l’onglet puis code avec la saisie conservée', (
     tester,
     repo,
   ) async {
@@ -306,9 +306,10 @@ void main() {
     await reach(tester, method('search'));
     await tester.tap(method('search'));
     await tester.pumpAndSettle();
-    expect(find.byType(ClientSearchScreen), findsOneWidget);
-    expect(find.text('Rechercher un client'), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.arrow_back_ios_new_rounded));
+    expect(find.byType(VisitClientSearchPane), findsOneWidget);
+    expect(find.text('Recherchez un client'), findsOneWidget);
+    await reach(tester, method('code'));
+    await tester.tap(method('code'));
     await tester.pumpAndSettle();
     expect(
       tester
@@ -409,7 +410,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  visitTest('la validation conserve les six onglets commerçant', (
+  visitTest('la validation conserve les cinq onglets commerçant', (
     tester,
     repo,
   ) async {
@@ -423,7 +424,6 @@ void main() {
       'Valider',
       'Récompenses',
       'Offres',
-      'Stats',
     ]);
     bar.onTap(2);
     await tester.pumpAndSettle();

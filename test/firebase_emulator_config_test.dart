@@ -6,6 +6,11 @@ void main() {
     expect(FirebaseEmulatorConfig.enabled, isFalse);
     expect(FirebaseEmulatorConfig.firebaseOptions.projectId, 'demo-loyalo-v2');
     expect(
+      FirebaseEmulatorConfig.firebaseOptions.apiKey,
+      matches(RegExp(r'^A[\w-]{38}$')),
+      reason: 'Le SDK Android valide ce format avant un appel Functions local.',
+    );
+    expect(
       FirebaseEmulatorConfig.firebaseOptions.projectId,
       isNot('loyalo-app'),
     );

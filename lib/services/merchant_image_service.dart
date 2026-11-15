@@ -52,6 +52,7 @@ class MerchantImageService {
   Future<MerchantImageUpload?> pickAndUpload({
     required String merchantId,
     required MerchantImageSlot slot,
+    bool preserveCurrentImage = false,
   }) async {
     final config = _configFor(slot);
     final picked = await _picker.pickImage(
@@ -66,6 +67,7 @@ class MerchantImageService {
       slot: slot,
       picked: picked,
       config: config,
+      preserveCurrentImage: preserveCurrentImage,
     );
   }
 
@@ -74,6 +76,7 @@ class MerchantImageService {
     required MerchantImageSlot slot,
     required XFile picked,
     MerchantImageConfig? config,
+    bool preserveCurrentImage = false,
   }) async {
     final resolvedConfig = config ?? _configFor(slot);
     final extension = _extensionFor(picked.name);
@@ -95,6 +98,7 @@ class MerchantImageService {
       merchantId: merchantId,
       slot: slot,
       extension: extension,
+      unique: preserveCurrentImage,
     );
     final metadata = SettableMetadata(
       contentType: contentType,
@@ -152,18 +156,21 @@ class MerchantImageService {
     required String merchantId,
     required MerchantImageSlot slot,
     required String extension,
+    bool unique = false,
   }) {
     final folder = switch (slot) {
       MerchantImageSlot.logo => 'logo',
       MerchantImageSlot.cover => 'cover',
       MerchantImageSlot.gallery => 'gallery',
     };
-    final fileName = switch (slot) {
-      MerchantImageSlot.logo => 'logo.$extension',
-      MerchantImageSlot.cover => 'cover.$extension',
-      MerchantImageSlot.gallery =>
-        '${DateTime.now().microsecondsSinceEpoch}.$extension',
-    };
+    final fileName = unique
+        ? '${slot.name}_${DateTime.now().microsecondsSinceEpoch}.$extension'
+        : switch (slot) {
+            MerchantImageSlot.logo => 'logo.$extension',
+            MerchantImageSlot.cover => 'cover.$extension',
+            MerchantImageSlot.gallery =>
+              '${DateTime.now().microsecondsSinceEpoch}.$extension',
+          };
     return 'merchants/$merchantId/$folder/$fileName';
   }
 

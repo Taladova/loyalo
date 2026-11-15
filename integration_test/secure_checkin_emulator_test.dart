@@ -32,7 +32,10 @@ void main() {
     expect(FirebaseEmulatorConfig.enabled, isTrue);
     expect(secureApproveCheckInEnabled, isTrue);
     expect(secureRejectCheckInEnabled, isTrue);
-    final testApp = await Firebase.initializeApp();
+    final testApp = await Firebase.initializeApp(
+      options: FirebaseEmulatorConfig.firebaseOptions,
+    );
+    expect(testApp.options.projectId, FirebaseEmulatorConfig.projectId);
     final auth = FirebaseAuth.instanceFor(app: testApp);
     final firestore = FirebaseFirestore.instanceFor(app: testApp);
     await auth.useAuthEmulator(FirebaseEmulatorConfig.host, 9099);
@@ -165,23 +168,25 @@ void main() {
       remoteDataSource: remote,
     );
     await syncService.retryPendingActions(ownerScopeId: restaurantId);
+    final approval = await database.pendingActionDao.getActionByOperationId(
+      'approveCheckIn:$checkInId',
+    );
+    expect(
+      approval?.status,
+      PendingActionStatus.synced,
+      reason: approval?.lastError,
+    );
     final approved = await firestore
         .collection('checkIns')
         .doc(checkInId)
         .get();
-    final canonicalVisitId = approved.data()!['visitId'] as String;
     expect(approved.data()!['status'], 'approved');
+    final canonicalVisitId = approved.data()!['visitId'] as String;
     expect(approved.data()!['pointsAwarded'], 120);
     expect(approved.data()!['visitId'], canonicalVisitId);
     expect(canonicalVisitId, isNot(provisionalVisitId));
     expect(await database.visitDao.getVisitById(provisionalVisitId), isNull);
     expect(await database.visitDao.getVisitById(canonicalVisitId), isNotNull);
-    expect(
-      (await database.pendingActionDao.getActionByOperationId(
-        'approveCheckIn:$checkInId',
-      ))?.status,
-      PendingActionStatus.synced,
-    );
 
     final visits = await firestore
         .collection('visits')

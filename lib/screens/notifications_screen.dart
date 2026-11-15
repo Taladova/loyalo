@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../widgets/loyalo_page_header.dart';
 import '../models/loyalo_notification.dart';
 import '../providers/app_providers.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/loyalo_auth_ui.dart';
+import '../widgets/loyalo_secondary_scaffold.dart';
+import '../widgets/loyalo_ui.dart';
 import 'client/client_visit_history_screen.dart';
 import 'client/referral_screen.dart';
 import 'client/rewards_screen.dart';
@@ -30,109 +32,62 @@ class NotificationsScreen extends ConsumerWidget {
     final items = merchant && restaurantId != null
         ? repo.notificationsForMerchant(restaurantId!)
         : repo.notificationsForUser(uid);
-    final text = AppTheme.textOf(context);
-    final muted = AppTheme.mutedOf(context);
-    final surface = AppTheme.surfaceOf(context);
-    final border = AppTheme.borderOf(context);
-
-    return Scaffold(
-      appBar: loyaloPageAppBar(context, title: const Text('Notifications')),
+    return LoyaloSecondaryScaffold(
+      title: 'Notifications',
       body: items.isEmpty
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Aucune notification pour le moment.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: muted),
-                ),
-              ),
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.all(20),
+          ? const _EmptyNotifications()
+          : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
               itemCount: items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 final notification = items[index];
-                return InkWell(
-                  onTap: () async {
-                    await repo.markNotificationRead(
-                      notificationId: notification.id,
-                      userId: uid,
+                final showDate =
+                    index == 0 ||
+                    !DateUtils.isSameDay(
+                      items[index - 1].createdAt.toLocal(),
+                      notification.createdAt.toLocal(),
                     );
-                    if (!context.mounted) return;
-                    _openTarget(context, notification);
-                  },
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: notification.isRead
-                            ? border
-                            : AppColors.purple.withValues(alpha: 0.55),
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CircleAvatar(
-                          radius: 20,
-                          backgroundColor: _colorFor(
-                            notification.type,
-                          ).withValues(alpha: 0.14),
-                          child: Icon(
-                            _iconFor(notification.type),
-                            color: _colorFor(notification.type),
-                            size: 20,
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (showDate)
+                        Padding(
+                          padding: EdgeInsets.only(
+                            top: index == 0 ? 0 : 12,
+                            bottom: 12,
+                            left: 4,
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                notification.title,
-                                style: TextStyle(
-                                  color: text,
-                                  fontWeight: notification.isRead
-                                      ? FontWeight.w600
-                                      : FontWeight.w800,
-                                ),
+                          child: Semantics(
+                            header: true,
+                            child: Text(
+                              DateFormat(
+                                'dd/MM/yyyy',
+                              ).format(notification.createdAt.toLocal()),
+                              style: const TextStyle(
+                                color: LoyaloAuthColors.textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                notification.body,
-                                style: TextStyle(
-                                  color: muted,
-                                  fontSize: 12,
-                                  height: 1.35,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                DateFormat(
-                                  'dd/MM/yyyy à HH:mm',
-                                ).format(notification.createdAt),
-                                style: TextStyle(color: muted, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (!notification.isRead)
-                          Container(
-                            width: 9,
-                            height: 9,
-                            decoration: const BoxDecoration(
-                              color: AppColors.purple,
-                              shape: BoxShape.circle,
                             ),
                           ),
-                      ],
-                    ),
+                        ),
+                      _NotificationCard(
+                        key: ValueKey('notification-${notification.id}'),
+                        notification: notification,
+                        icon: _iconFor(notification.type),
+                        color: _colorFor(notification.type),
+                        onTap: () async {
+                          await repo.markNotificationRead(
+                            notificationId: notification.id,
+                            userId: uid,
+                          );
+                          if (!context.mounted) return;
+                          _openTarget(context, notification);
+                        },
+                      ),
+                    ],
                   ),
                 );
               },
@@ -199,4 +154,165 @@ class NotificationsScreen extends ConsumerWidget {
         return AppColors.textGray;
     }
   }
+}
+
+class _EmptyNotifications extends StatelessWidget {
+  const _EmptyNotifications();
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: LoyaloCard(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const ExcludeSemantics(
+                    child: LoyaloIconBadge(
+                      icon: Icons.notifications_none_rounded,
+                      color: LoyaloAuthColors.purple,
+                      size: 52,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Semantics(
+                    header: true,
+                    child: const Text(
+                      'Aucune notification',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: LoyaloAuthColors.textPrimary,
+                        fontSize: 20,
+                        height: 1.3,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Vous n’avez aucune notification pour le moment.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: LoyaloAuthColors.textSecondary,
+                      fontSize: 14,
+                      height: 1.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _NotificationCard extends StatelessWidget {
+  const _NotificationCard({
+    super.key,
+    required this.notification,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  final LoyaloNotification notification;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    child: LoyaloCard(
+      color: Colors.white,
+      padding: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ExcludeSemantics(
+                child: LoyaloIconBadge(icon: icon, color: color, size: 42),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            notification.title,
+                            style: TextStyle(
+                              color: LoyaloAuthColors.textPrimary,
+                              fontSize: 15,
+                              height: 1.4,
+                              fontWeight: notification.isRead
+                                  ? FontWeight.w600
+                                  : FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        if (!notification.isRead) ...[
+                          const SizedBox(width: 8),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Semantics(
+                              key: ValueKey(
+                                'notification-unread-${notification.id}',
+                              ),
+                              label: 'Non lue',
+                              child: const DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: LoyaloAuthColors.purple,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: SizedBox(width: 8, height: 8),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      notification.body,
+                      style: const TextStyle(
+                        color: LoyaloAuthColors.textSecondary,
+                        fontSize: 14,
+                        height: 1.55,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      DateFormat(
+                        'dd/MM/yyyy à HH:mm',
+                      ).format(notification.createdAt),
+                      style: const TextStyle(
+                        color: LoyaloAuthColors.textSecondary,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }

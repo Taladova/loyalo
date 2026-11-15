@@ -20,7 +20,11 @@ class _Offline implements NetworkMonitor {
 
 class OffersUiRepository extends LoyaltyRepository {
   OffersUiRepository(this.firestore, this.database)
-    : super(firestore: firestore, database: database, networkMonitor: _Offline());
+    : super(
+        firestore: firestore,
+        database: database,
+        networkMonitor: _Offline(),
+      );
 
   final FakeFirebaseFirestore firestore;
   final AppDatabase database;
@@ -70,7 +74,10 @@ class OffersUiRepository extends LoyaltyRepository {
     required String restaurantId,
   }) async {
     if (deleteError != null) throw deleteError!;
-    await super.deleteExclusiveOffer(offerId: offerId, restaurantId: restaurantId);
+    await super.deleteExclusiveOffer(
+      offerId: offerId,
+      restaurantId: restaurantId,
+    );
   }
 }
 
@@ -98,7 +105,9 @@ class OffersUiFixture {
       icon: Icons.storefront_outlined,
     );
     await firestore.collection('restaurants').doc(shopId).set(shop.toMap());
-    await firestore.collection('merchants').doc(ownerId).set({'restaurantId': shopId});
+    await firestore.collection('merchants').doc(ownerId).set({
+      'restaurantId': shopId,
+    });
     repo.startListeningForMerchant(shopId, ownerUid: ownerId);
     for (var i = 0; i < 100 && repo.restaurantsLoading; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 5));
@@ -138,7 +147,10 @@ class OffersUiFixture {
       await doc.reference.delete();
     }
     for (final offer in offers) {
-      await firestore.collection('exclusiveOffers').doc(offer.id).set(offer.toMap());
+      await firestore
+          .collection('exclusiveOffers')
+          .doc(offer.id)
+          .set(offer.toMap());
     }
     await Future<void>.delayed(const Duration(milliseconds: 20));
   }

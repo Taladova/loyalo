@@ -11,12 +11,10 @@ import '../../widgets/loyalo_auth_ui.dart';
 import '../../widgets/loyalo_merchant_dashboard_ui.dart';
 import '../../widgets/loyalo_ui.dart';
 import '../notifications_screen.dart';
-import '../welcome_screen.dart';
 import 'activity_history_screen.dart';
-import 'client_search_screen.dart';
+import 'merchant_establishment_screen.dart';
 import 'merchant_settings_screen.dart';
-import 'offers_management_screen.dart';
-import 'rewards_management_screen.dart';
+import 'statistics_screen.dart';
 import 'validate_visit_screen.dart';
 
 enum _DashboardPeriod {
@@ -41,16 +39,6 @@ class MerchantDashboardScreen extends ConsumerStatefulWidget {
 class _MerchantDashboardScreenState
     extends ConsumerState<MerchantDashboardScreen> {
   _DashboardPeriod _period = _DashboardPeriod.today;
-
-  Future<void> _logout(BuildContext context, WidgetRef ref) async {
-    await ref.read(loyaltyRepositoryProvider).stopListening();
-    await AuthService().signOut();
-    if (!context.mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const WelcomeScreen()),
-      (route) => false,
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -157,7 +145,7 @@ class _MerchantDashboardScreenState
                 activeClients: activeClients,
                 newClientsThisMonth: newClientsThisMonth,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               LoyaloDashboardPair(
                 first: LoyaloMetricCard(
                   key: const Key('dashboard-visits'),
@@ -174,7 +162,7 @@ class _MerchantDashboardScreenState
                   trend: _trendLabel(newClients, previousNewClients),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               LoyaloMetricCard(
                 key: const Key('dashboard-points'),
                 value: '$pointsGranted',
@@ -187,9 +175,7 @@ class _MerchantDashboardScreenState
           ),
           const SizedBox(height: 16),
           _PendingCheckInsSection(restaurantId: restaurantId),
-          const SizedBox(height: 20),
-          _QuickActions(restaurantId: restaurantId),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           LoyaloDashboardSectionHeader(
             'Activité récente',
             key: const Key('dashboard-section-activity'),
@@ -253,53 +239,101 @@ class _MerchantDashboardScreenState
   }) => LoyaloAuthScaffold(
     onBack: null,
     showBackButton: false,
-    headerBuilder: (context, compact, veryCompact) => Column(
-      children: [
-        LoyaloMerchantHeader(
-          restaurant: restaurant,
-          merchantName: AuthService().currentUser?.displayName,
-          notificationCount: restaurantId == null
-              ? 0
-              : repo.unreadNotificationsForMerchant(restaurantId),
-          onNotifications: restaurant == null
-              ? null
-              : () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => NotificationsScreen(
-                      merchant: true,
-                      restaurantId: restaurantId!,
+    headerBuilder: (context, compact, veryCompact) => LoyaloMerchantHeader(
+      restaurant: restaurant,
+      notificationCount: restaurantId == null
+          ? 0
+          : repo.unreadNotificationsForMerchant(restaurantId),
+      onNotifications: restaurant == null
+          ? null
+          : () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => NotificationsScreen(
+                  merchant: true,
+                  restaurantId: restaurantId!,
+                ),
+              ),
+            ),
+      onProfile: restaurant == null
+          ? null
+          : () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MerchantSettingsScreen()),
+            ),
+      onEstablishment: restaurant == null
+          ? null
+          : () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const MerchantEstablishmentScreen(),
+              ),
+            ),
+      onStatistics: restaurant == null
+          ? null
+          : () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const StatisticsScreen()),
+            ),
+    ),
+    contentBuilder: (context, compact) => LoyaloAuthSurface(
+      compact: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (restaurant != null) ...[
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final heading = Semantics(
+                  header: true,
+                  child: const Text(
+                    'Vue d’ensemble',
+                    style: TextStyle(
+                      color: LoyaloAuthColors.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                ),
-          onProfile: restaurant == null
-              ? null
-              : () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const MerchantSettingsScreen(),
-                  ),
-                ),
-          onLogout: () => _logout(context, ref),
-        ),
-        if (restaurant != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
-            child: LoyaloPeriodSelector<_DashboardPeriod>(
-              key: const Key('dashboard-period'),
-              value: _period,
-              label: _period.label,
-              onSelected: (period) => setState(() => _period = period),
-              items: _DashboardPeriod.values
-                  .map(
-                    (period) =>
-                        PopupMenuItem(value: period, child: Text(period.label)),
-                  )
-                  .toList(),
+                );
+                final period = LoyaloPeriodSelector<_DashboardPeriod>(
+                  key: const Key('dashboard-period'),
+                  compact: true,
+                  value: _period,
+                  label: _period.label,
+                  onSelected: (period) => setState(() => _period = period),
+                  items: _DashboardPeriod.values
+                      .map(
+                        (period) => PopupMenuItem(
+                          value: period,
+                          child: Text(period.label),
+                        ),
+                      )
+                      .toList(),
+                );
+                final largeText =
+                    MediaQuery.textScalerOf(context).scale(14) > 20;
+                if (largeText || constraints.maxWidth < 304) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      heading,
+                      const SizedBox(height: 12),
+                      Align(alignment: Alignment.centerRight, child: period),
+                    ],
+                  );
+                }
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Flexible(child: heading),
+                    const SizedBox(width: 12),
+                    Flexible(child: period),
+                  ],
+                );
+              },
             ),
-          ),
-      ],
+            const SizedBox(height: 24),
+          ],
+          body,
+        ],
+      ),
     ),
-    contentBuilder: (context, compact) =>
-        LoyaloAuthSurface(compact: true, child: body),
   );
 }
 
@@ -581,51 +615,4 @@ String _loyaltyBadgeFor(int passageCount) {
   if (passageCount >= 10) return 'VIP';
   if (passageCount >= 3) return 'Fidèle';
   return 'Client récent';
-}
-
-class _QuickActions extends StatelessWidget {
-  const _QuickActions({required this.restaurantId});
-  final String restaurantId;
-  @override
-  Widget build(BuildContext context) => Column(
-    key: const Key('dashboard-section-actions'),
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      const LoyaloDashboardSectionHeader('Actions rapides'),
-      const SizedBox(height: 10),
-      LoyaloDashboardPair(
-        first: LoyaloQuickAction(
-          label: 'Valider une visite',
-          icon: Icons.check_circle_outline_rounded,
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const ValidateVisitScreen()),
-          ),
-        ),
-        second: LoyaloQuickAction(
-          label: 'Mes clients',
-          icon: Icons.people_outline_rounded,
-          onTap: () => Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (_) => const ClientSearchScreen())),
-        ),
-      ),
-      const SizedBox(height: 10),
-      LoyaloDashboardPair(
-        first: LoyaloQuickAction(
-          label: 'Créer une offre',
-          icon: Icons.local_fire_department_outlined,
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const OffersManagementScreen()),
-          ),
-        ),
-        second: LoyaloQuickAction(
-          label: 'Mes récompenses',
-          icon: Icons.card_giftcard_outlined,
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const RewardsManagementScreen()),
-          ),
-        ),
-      ),
-    ],
-  );
 }
